@@ -147,7 +147,7 @@ in columns by group.
 labels, units, and factor levels (actually creating 
 factors where appropriate, such as for sex and ulcer).
 
-* alias() substitutes labels for column names.
+* modify() supplies titles for certain column names.
 
 Now we pass x to tablet() and as_kable() for a more
 informative result.
