@@ -1,13 +1,13 @@
-aea2289f737a590bc4270e0d46017ede *DESCRIPTION
+5fde9db329147c09c7f1a93c6a1660ce *DESCRIPTION
 bf75316dffcc754920af7a0d8bfbe273 *NAMESPACE
-ee1aa63cca1127a4d61901574f0d2361 *R/tablet.R
+ea18b59577d910edabc66170cecda95a *R/tablet.R
 a8046edb29929ec887522698fb8a9218 *build/vignette.rds
 a25d5ec256ebf1c3b228436643141daa *inst/doc/tablet-introduction-html.R
 6ec91d54635530c7a807943ba63c66a2 *inst/doc/tablet-introduction-html.Rmd
-6c347a31a20061aa8d54eb2511356c23 *inst/doc/tablet-introduction-html.html
+4662b81780855de700506ea91eb29589 *inst/doc/tablet-introduction-html.html
 1a422d3249350f0732ae5d1ad330cbfb *inst/doc/tablet-introduction-pdf.R
 93f68ba689665ef7406963cf31f3a162 *inst/doc/tablet-introduction-pdf.Rmd
-edf96a5b0061829306db05ebdabf5132 *inst/doc/tablet-introduction-pdf.pdf
+c37fd5f9d1bab1510e94e572605d8738 *inst/doc/tablet-introduction-pdf.pdf
 4e3f0510b12b9d508ce5e9a9927716aa *man/as_kable.Rd
 ecce8a2f323fd999c97b6e69023e13af *man/as_kable.tablet.Rd
 c4dfea6ec4e46fc68736ab8569a17ae3 *man/categoricals.Rd
