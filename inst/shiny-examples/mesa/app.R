@@ -13,6 +13,8 @@ library(knitr)
 library(latexpdf)
 library(tools)
 library(csv)
+library(shinyAce)
+library(spork)
 
 ui <- shinyUI(
   navbarPage(
@@ -24,15 +26,15 @@ ui <- shinyUI(
           width = 12,
           shinyFilesButton(
             id = 'source',
-            label = 'choose a dataset or metadata file',
-            title = 'choose a dataset or metadata file:',
+            label = 'data / metadata',
+            title = 'choose data or metadata file:',
             multiple = FALSE
           ),
           textOutput('filepath'),
           shinyFilesButton(
             id = 'config',
-            label = 'choose a table configuration file',
-            title = 'choose a table configuration file:',
+            label = 'configuration',
+            title = 'choose configuration file:',
             multiple = FALSE
           ),
           uiOutput('saveconfig'),
@@ -63,6 +65,7 @@ ui <- shinyUI(
       sidebarLayout(
         sidebarPanel(
           width = 2,
+          uiOutput('labelhtml'),
           uiOutput('savecsv')
           # ,
           # actionButton(
@@ -82,7 +85,10 @@ ui <- shinyUI(
           width = 2,
           uiOutput('repeatheader'),
           uiOutput('repeatfootnote'),
-          uiOutput('na_string')
+          #uiOutput('spork'),
+          uiOutput('na_string'),
+          uiOutput('labeltex'),
+          uiOutput('savepdf')
         ),
         mainPanel(
           width = 10,
@@ -102,9 +108,23 @@ ui <- shinyUI(
           uiOutput('lhead1'),
           uiOutput('lhead2'),
           uiOutput('rhead1'),
-          uiOutput('rhead2')
+          uiOutput('rhead2'),
+          uiOutput('cont')
         ),
         mainPanel(width = 0) #end main panel
+      )
+    ),
+    tabPanel(
+      'Metadata',
+      sidebarLayout(
+        sidebarPanel(
+          width = 2,
+          uiOutput('saveMeta')
+        ),
+        mainPanel(
+          width = 12,
+          uiOutput('meta')
+        )
       )
     )
     # ,
@@ -124,8 +144,10 @@ ui <- shinyUI(
 server <- shinyServer(function(input, output, session) {
 
   # declare the objects that control the application
+
   conf <- reactiveValues(
     filepath   = character(0),
+    metapath   = character(0),
     confpath   = character(0),
     selected   = character(0),
     filter_by  = character(0),
@@ -138,13 +160,21 @@ server <- shinyServer(function(input, output, session) {
     lhead2     = 'Project',
     rhead1     = 'Confidential',
     rhead2     = 'Draft',
+    cont  = '(continued)',
     footnotes  = '(footnotes here)',
     na_string  = 'NA',
-    x          = data.frame()
+    x          = data.frame(),
+    mv         = 0,
+    editor     = NULL,
+    labelhtml  = 'no',
+    labeltex   = 'no',
+    repeathead = 'no',
+    repeatfoot = 'no'
   )
 
   reset_conf <- function(){
     conf$filepath   <- character(0)
+    conf$metapath   <- character(0)
     conf$confpath   <- character(0)
     conf$selected   <- character(0)
     conf$filter_by  <- character(0)
@@ -157,10 +187,18 @@ server <- shinyServer(function(input, output, session) {
     conf$lhead2     <- 'Project'
     conf$rhead1     <- 'Confidential'
     conf$rhead2     <- 'Draft'
+    conf$cont       <- '(continued)'
     conf$footnotes  <- '(footnotes here)'
     conf$na_string  <- 'NA'
     conf$x          <- data.frame()
+    conf$mv         <- 0
+    conf$editor     <- NULL
+    labelhtml       <- 'no'
+    labeltex        <- 'no'
+    repeathead      <- 'no'
+    repeatfoot      <- 'no'
   }
+
 
   file_ok <- function(x){
     if(!length(x))return(FALSE)
@@ -238,6 +276,7 @@ server <- shinyServer(function(input, output, session) {
       conf$confpath <- path
     }
   })
+
   observe({
     shinyFileSave(input, "savetable", roots = ui_volumes, session = session)
     fileinfo <- parseSavePath(ui_volumes, input$save)
@@ -245,6 +284,15 @@ server <- shinyServer(function(input, output, session) {
       path <- as.character(fileinfo$datapath)
       data <- isolate(summarized())
       as.csv(data, path)
+    }
+  })
+
+  observe({
+    shinyFileSave(input, "savepdf", roots = ui_volumes, session = session)
+    fileinfo <- parseSavePath(ui_volumes, input$save)
+    if (nrow(fileinfo) > 0) {
+      path <- as.character(fileinfo$datapath)
+      file.copy(pdf_location(), path)
     }
   })
 
@@ -297,11 +345,27 @@ server <- shinyServer(function(input, output, session) {
   })
 
   observeEvent(input$submit,{
+    conf$cont <- input$cont
+  })
+
+  observeEvent(input$submit,{
     conf$footnotes <- input$footnotes
   })
 
   observeEvent(input$na_string,{
     conf$na_string <- input$na_string
+  })
+  observeEvent(input$repeathead,{
+    conf$repeathead <- input$repeathead
+  })
+  observeEvent(input$repeatfoot,{
+    conf$repeatfoot <- input$repeatfoot
+  })
+  observeEvent(input$labelhtml,{
+    conf$labelhtml <- input$labelhtml
+  })
+  observeEvent(input$labeltex,{
+    conf$labeltex <- input$labeltex
   })
 
   observeEvent(input$source, {
@@ -333,8 +397,9 @@ server <- shinyServer(function(input, output, session) {
     )
   })
 
+
+
   observeEvent(conf$confpath,{
-    #browser()
     if(!length(conf$confpath)){
       # showNotification(duration = NULL, type = 'message', 'configuration path is null')
       # reset_conf()
@@ -378,36 +443,55 @@ server <- shinyServer(function(input, output, session) {
     #   * filepath exists
 
     # update internal configuration from saved configuration
-    conf$filepath <- saved$filepath
-    conf$selected <- saved$selected
-    conf$filter_by <- saved$filter_by
-    conf$keep      <- saved$keep
-    conf$group_by   <- saved$group_by
-    conf$sequential<- saved$sequential
-    conf$title      <- saved$title
-    conf$lhead1     <- saved$lhead1
-    conf$lhead2    <- saved$lhead2
-    conf$rhead1     <- saved$rhead1
-    conf$rhead2    <- saved$rhead2
-    conf$footnotes <- saved$footnotes
-    conf$na_string <- saved$na_string
-    conf$outputid <- saved$outputid
+
+    if(!is.null(saved$filepath))conf$filepath <- saved$filepath
+    if(!is.null(saved$metapath))conf$metapath <- saved$metapath
+    if(!is.null(saved$selected))conf$selected <- saved$selected
+    if(!is.null(saved$filter_by))conf$filter_by <- saved$filter_by
+    if(!is.null(saved$keep))conf$keep      <- saved$keep
+    if(!is.null(saved$group_by))conf$group_by   <- saved$group_by
+    if(!is.null(saved$sequential))conf$sequential<- saved$sequential
+    if(!is.null(saved$title))conf$title      <- saved$title
+    if(!is.null(saved$lhead1))conf$lhead1     <- saved$lhead1
+    if(!is.null(saved$lhead2))conf$lhead2    <- saved$lhead2
+    if(!is.null(saved$rhead1))conf$rhead1     <- saved$rhead1
+    if(!is.null(saved$rhead2))conf$rhead2    <- saved$rhead2
+    if(!is.null(saved$cont))conf$cont <- saved$cont
+    if(!is.null(saved$footnotes))conf$footnotes <- saved$footnotes
+    if(!is.null(saved$na_string))conf$na_string <- saved$na_string
+    if(!is.null(saved$outputid))conf$outputid <- saved$outputid
+    if(!is.null(saved$repeathead))conf$repeathead <- saved$repeathead
+    if(!is.null(saved$repeatfoot))conf$repeatfoot <- saved$repeatfoot
+    if(!is.null(saved$labelhtml))conf$labelhtml <- saved$labelhtml
+    if(!is.null(saved$labeltex))conf$labeltex <- saved$labeltex
+
     #conf$x          = data.frame()
-    # if filepath has changed, data will be re-read
-
+    # if filepath has changed, data will be re-read: see observeEvent(conf$filepath)
   })
 
-  output$filepath <- renderPrint({
-    if (!length(conf$filepath)) {
-      cat('No input data selected.')
-    } else {
-      cat(conf$filepath)
-    }
-  })
+  # when conf$filepath changes, we rebuild the data
+  # also need to trigger when metadata changes on disk
+  # i.e. when we have saved it.
 
-  observeEvent(conf$filepath, {
+  # https://stackoverflow.com/questions/34731975/how-to-listen-for-more-than-one-event-expression-within-a-shiny-eventreactive-ha
+
+  printer <- function(x)(return())# writeLines(as.character(x))
+
+  observeEvent({
+      conf$filepath # new data selected
+      conf$mv # metadata re-written
+      1 # prevents NULL from squelching the observation
+    },
+    {
     # invalidate the keep/filter observers if data changes
     observers <<- list()
+
+    printer("Hello.  I'm the code that listens for changes to filefpath and mv.")
+    printer('Currently filepath is')
+    printer(conf$filepath)
+    printer('currently mv is')
+    printer(conf$mv)
+
 
     # invalidate configuration if an attempt is made to supplant data
     # conf$confpath <- character(0)
@@ -455,6 +539,7 @@ server <- shinyServer(function(input, output, session) {
 
     # now we have best available metadata
     has_meta <- TRUE
+    conf$metapath <- metafile # make visible
 
     # make data look like metadata (which may be superset)
 
@@ -480,6 +565,14 @@ server <- shinyServer(function(input, output, session) {
 
   })
 
+  output$filepath <- renderPrint({
+    if (!length(conf$filepath)) {
+      cat('No input data selected.')
+    } else {
+      cat(conf$filepath)
+    }
+  })
+
   filtered <- reactive({
     #browser()
     x <- conf$x
@@ -499,6 +592,38 @@ server <- shinyServer(function(input, output, session) {
   factorized <- reactive({
     x <- filtered()
     x %<>% mutate_if(is.character, classified)
+    x %<>% modify(title = paste0(label, ' (', .data$units, ')'))
+
+    if(length(input$labelhtml) == 1){
+      if(input$labelhtml == 'yes'){
+        x %<>% modify(
+          html = paste0(
+            as_html(as_spork(.data$label)),
+            as_html(as_spork(' (')),
+            as_html(as_spork(.data$units)),
+            as_html(as_spork(')'))
+          )
+        )
+      }
+    }
+    if(length(input$labeltex) == 1){
+      if(input$labeltex == 'yes'){
+        x %<>% modify(
+          tex = paste0(
+            as_latex(as_spork(.data$label)),
+            as_latex(as_spork(' (')),
+            as_latex(as_spork(.data$units)),
+            as_latex(as_spork(')'))
+          )
+        )
+        # at the moment, sim_double_escape()
+        # only doubles first element.
+        # we pre-double other escapes.
+        # "$\\mathrm{\\textrm{Displacement}}$$\\mathrm{\\textrm{ } \\textrm{(}}$$\\mathrm{\\textrm{in}^{\\textrm{3}}}$$\\mathrm{\\textrm{)}}$"
+        x %<>% modify(tex = gsub('\\','\\\\', .data$tex, fixed = TRUE))
+        x %<>% modify(tex = sub('\\\\','\\', .data$tex, fixed = TRUE)) # first will be doubled later
+      }
+    }
     x
   })
 
@@ -537,14 +662,23 @@ server <- shinyServer(function(input, output, session) {
   summarized <- reactive({
     fun <- tablet
     if(conf$sequential) fun <- splice
-    fun
     args <- args()
     do.call(fun,args)
   })
 
   html <- reactive({
     options(knitr.kable.NA = conf$na_string)
-    x <- summarized()
+
+    fun <- tablet
+    if(conf$sequential) fun <- splice
+    args <- args()
+
+    if(!is.null(input$labelhtml)){
+      if(input$labelhtml == 'yes'){
+        args$x %<>% modify(title = .data$html)
+      }
+    }
+    x <- do.call(fun, args)
     x %<>% as_kable(caption = conf$title)
     x %<>% kable_classic(full_width = F, html_font = "Cambria")
     x %<>% kable_styling(fixed_thead = T)
@@ -555,27 +689,59 @@ server <- shinyServer(function(input, output, session) {
     old <- opts_knit$get('out.format')
     opts_knit$set(out.format = 'latex')
     options(knitr.kable.NA = conf$na_string)
-    x <- summarized()
+
+    fun <- tablet
+    if(conf$sequential) fun <- splice
+    args <- args()
+
+    if(!is.null(input$labeltex)){
+      if(input$labeltex == 'yes'){
+        args$x %<>% modify(title = .data$tex)
+      } else {
+        args$x %<>% modify(title = kableExtra:::escape_latex(title))
+      }
+    }
+
+    x <- do.call(fun, args)
     if(!nrow(x)){
       showNotification(duration = NULL, type = 'error', 'no rows selected')
       return(character(0))
     }
+
     x %<>% as_kable(format = 'latex', caption = conf$title, longtable = TRUE)
-    if(input$repeatheader == 'yes') x %<>% kable_styling(latex_options = 'repeat_header')
+    if(length(input$repeatheader) == 1){
+      if(input$repeatheader == 'yes'){
+        x %<>% kable_styling(latex_options = 'repeat_header')
+      }
+    }
     x %<>% footnote(general = conf$footnotes,fixed_small_size = TRUE,general_title = " ",threeparttable = TRUE)
     x %<>% as.character
 
     # insert footnote on every page
+
+    cont <- input$cont
+    mycont <- NULL
+    if(!is.null(cont)){
+      if(nchar(cont) > 0){
+        mycont <- c(
+          paste0('\\multicolumn{1}{r}{\\emph{', cont, '}}\\\\'),
+          '\\midrule'
+        )
+      }
+    }
+
     insertion <- c(
       '\\endhead',
       '\\midrule',
-      '\\multicolumn{1}{r}{\\emph{Continued on next page}}\\\\',
-      '\\midrule',
+      mycont,
       '\\insertTableNotes'
     )
     insertion <- paste(insertion, collapse = '\n')
-    if(input$repeatfootnote == 'yes') x %<>% sub('\\endhead', insertion, ., fixed = TRUE)
-
+    if(length(input$repeatfootnote) == 1){
+      if(input$repeatfootnote == 'yes'){
+        x %<>% sub('\\endhead', insertion, ., fixed = TRUE)
+      }
+    }
     x %<>% as.document(
       thispagestyle = '',
       pagestyle = '',
@@ -617,17 +783,6 @@ server <- shinyServer(function(input, output, session) {
     x
   })
 
-  output$saveconfig <- renderUI({
-    shinySaveButton(
-      id = 'save',
-      label = 'save configuration as ...',
-      title = 'save configuration as:',
-      filetype = list(conf = 'conf'),
-      filename = paste0(conf$outputid, '.conf')
-    )
-
-  })
-
   output$savecsv <- renderUI({
     shinySaveButton(
       id = 'savetable',
@@ -636,7 +791,16 @@ server <- shinyServer(function(input, output, session) {
       filetype = list(conf = 'csv'),
       filename = paste0(conf$outputid, '.csv')
     )
+  })
 
+  output$savepdf <- renderUI({
+    shinySaveButton(
+      id = 'savepdf',
+      label = 'save pdf as ...',
+      title = 'save pdf as:',
+      filetype = list(conf = 'pdf'),
+      filename = paste0(conf$outputid, '.pdf')
+    )
   })
 
   output$buckets <- renderUI({
@@ -696,7 +860,7 @@ server <- shinyServer(function(input, output, session) {
       'repeat header on each page',
       inline = TRUE,
       choices = c('yes','no'),
-      selected = 'yes'
+      selected = conf$repeathead
     )
   })
 
@@ -706,7 +870,27 @@ server <- shinyServer(function(input, output, session) {
       'repeat footnote n each page',
       inline = TRUE,
       choices = c('yes','no'),
-      selected = 'yes'
+      selected = conf$repeatfoot
+    )
+  })
+
+  output$labelhtml <- renderUI({
+    radioButtons(
+      'labelhtml',
+      'spork labels',
+      inline = TRUE,
+      choices = c('yes','no'),
+      selected = conf$labelhtml
+    )
+  })
+
+  output$labeltex <- renderUI({
+    radioButtons(
+      'labeltex',
+      'spork labels',
+      inline = TRUE,
+      choices = c('yes','no'),
+      selected = conf$labeltex
     )
   })
 
@@ -732,6 +916,10 @@ server <- shinyServer(function(input, output, session) {
 
   output$rhead2 <- renderUI({
     textInput('rhead2','Right Header 2', value = conf$rhead2)
+  })
+
+  output$cont <- renderUI({
+    textInput('cont','Continued', value = conf$cont)
   })
 
   output$footnotes <- renderUI({
@@ -833,8 +1021,95 @@ server <- shinyServer(function(input, output, session) {
 
   output$tex <- renderText(tex(), sep = '\n')
 
-})
+  output$saveconfig <- renderUI({
+    shinySaveButton(
+      id = 'save',
+      label = 'save configuration as ...',
+      title = 'save configuration as:',
+      filetype = list(conf = 'conf'),
+      filename = paste0(conf$outputid, '.conf')
+    )
 
+  })
+
+
+  # https://stackoverflow.com/questions/54304518/how-to-edit-a-yml-file-in-shiny
+
+  output$saveMeta <- renderUI({
+    actionButton("saveMeta", label = "Save Metadata")
+  })
+
+  output$meta <- renderUI({
+    printer("Hello.  I'm the code responsible for drawing the editor dialogue.")
+    current <- conf$editor
+    printer("last known length of the dialogue is")
+    printer(length(current))
+    printer("Presumably we're only here because conf$metapath has changed.")
+    printer("Right now conf$metapath is")
+    printer(conf$metapath)
+    if(!length(conf$metapath))return(current)
+    if(is.na(conf$metapath))return(current)
+    val <- NULL
+    printer("I am going to try to read metadata from conf$metapath")
+    tryCatch(
+      val <- readLines(conf$metapath),
+      error = function(e) showNotification(
+        duration = NULL,
+        type = 'error',
+        as.character(e)
+      )
+    )
+    printer("currently our metadata has this length")
+    printer(length(val))
+    if(!is.null(val)){
+      val <- aceEditor(
+        outputId = "meta",
+        value = val,
+        mode = 'yaml',
+        tabSize = 2
+      )
+      printer("I'm resetting the saved version of the editor")
+      conf$editor <- val
+    } else {
+      val <- conf$editor
+    }
+    printer("I'm returning an editor with this length")
+    printer(length(val))
+    val
+  })
+
+  observeEvent(input$saveMeta, {
+    printer('I see someone clicked "save Metadata"')
+    tryCatch(
+      {
+        printer("I'm going to try to read the supplied metadata as yaml")
+        foo <- yaml.load(input$meta)
+        printer("I'm going to try to read the supplied metadata as yamlet")
+        foo <- read_yamlet(input$meta)
+        printer("I'm going to try to write the supplied metadata to ")
+        printer(conf$metapath)
+        printer("It is this long:")
+        printer(length(input$meta))
+        write(x = input$meta, file = conf$metapath)
+        # trigger redecoration
+        # metadata version
+        printer('currently mv is')
+        printer(conf$mv)
+        printer('updating mv')
+        conf$mv <- conf$mv + 1
+        printer('now mv is')
+        printer(conf$mv)
+      },
+      error = function(e) showNotification(
+        duration = NULL,
+        type = 'error',
+        as.character(e)
+      )
+    )
+    printer("done handling save-metadata button click")
+  })
+
+})
 # Create Shiny app ----
 shinyApp(ui, server)
 

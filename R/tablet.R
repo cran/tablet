@@ -996,7 +996,7 @@ as_kable.tablet <- function(
    y <- do.call(
       kableExtra::pack_rows,
       c(
-         list(y, index = index),
+         list(y, index = index, escape = escape),
          pack_rows
       )
    )
