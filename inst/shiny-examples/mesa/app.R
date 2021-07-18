@@ -475,7 +475,7 @@ server <- shinyServer(function(input, output, session) {
 
   # https://stackoverflow.com/questions/34731975/how-to-listen-for-more-than-one-event-expression-within-a-shiny-eventreactive-ha
 
-  printer <- function(x)(return())# writeLines(as.character(x))
+  printer <- function(x)writeLines(as.character(x))
 
   observeEvent({
       conf$filepath # new data selected
@@ -486,7 +486,7 @@ server <- shinyServer(function(input, output, session) {
     # invalidate the keep/filter observers if data changes
     observers <<- list()
 
-    printer("Hello.  I'm the code that listens for changes to filefpath and mv.")
+    printer("Hello.  I'm the code that listens for changes to filepath and mv.")
     printer('Currently filepath is')
     printer(conf$filepath)
     printer('currently mv is')
@@ -686,21 +686,28 @@ server <- shinyServer(function(input, output, session) {
   })
 
   tex <- reactive({
+    printer('Hi.  I am the code that formats the latex.')
     old <- opts_knit$get('out.format')
     opts_knit$set(out.format = 'latex')
-    options(knitr.kable.NA = conf$na_string)
+    options(knitr.kable.NA = escape_latex(conf$na_string))
 
     fun <- tablet
     if(conf$sequential) fun <- splice
     args <- args()
-
+    printer(decorations(args$x))
     if(!is.null(input$labeltex)){
       if(input$labeltex == 'yes'){
+        printer('I see we are using spork labels.')
         args$x %<>% modify(title = .data$tex)
+        #args$x %<>% modify(codelist = lapply(codelist, kableExtra:::escape_latex2))
       } else {
         args$x %<>% modify(title = kableExtra:::escape_latex(title))
+        #args$x %<>% modify(codelist = lapply(codelist, kableExtra:::escape_latex2))
       }
+    } else {
+      args$x %<>% modify(title = kableExtra:::escape_latex(title))
     }
+    printer(decorations(args$x))
 
     x <- do.call(fun, args)
     if(!nrow(x)){
@@ -708,13 +715,13 @@ server <- shinyServer(function(input, output, session) {
       return(character(0))
     }
 
-    x %<>% as_kable(format = 'latex', caption = conf$title, longtable = TRUE)
+    x %<>% as_kable(format = 'latex', caption = escape_latex(conf$title), longtable = TRUE)
     if(length(input$repeatheader) == 1){
       if(input$repeatheader == 'yes'){
         x %<>% kable_styling(latex_options = 'repeat_header')
       }
     }
-    x %<>% footnote(general = conf$footnotes,fixed_small_size = TRUE,general_title = " ",threeparttable = TRUE)
+    x %<>% footnote(general = escape_latex(conf$footnotes),fixed_small_size = TRUE, general_title = " ",threeparttable = TRUE)
     x %<>% as.character
 
     # insert footnote on every page
@@ -755,9 +762,9 @@ server <- shinyServer(function(input, output, session) {
         '\\fancyhf{}',
         '\\renewcommand{\\headrulewidth}{0pt}',
         '\\pagestyle{fancy}',
-        paste0('\\lhead{', conf$lhead1,' \\\\ ',conf$lhead2, '}'),
+        paste0('\\lhead{', escape_latex(conf$lhead1),' \\\\ ',escape_latex(conf$lhead2), '}'),
         '%\\chead{Table 0.0.0.xxx}',
-        paste0('\\rhead{', conf$rhead1,' \\\\ ',conf$rhead2, '}'),
+        paste0('\\rhead{', escape_latex(conf$rhead1),' \\\\ ',escape_latex(conf$rhead2), '}'),
         #paste0('\\lfoot{\\textit{',file_path_sans_ext(conf$filepath),'}}'),
         paste0('\\lfoot{\\textit{~', sub(getwd(),'',conf$confpath, fixed = TRUE),'}}'),
 
@@ -959,6 +966,7 @@ server <- shinyServer(function(input, output, session) {
   })
 
   output$data <- DT::renderDataTable({
+    if(!nrow(conf$x))return(structure(data.frame(` `='data goes here.', check.names = F), row.names = ' '))
     out <- conf$x
     #out %<>% resolve # already done
     out %<>% modify(name = paste(name, label, sep = ': '))
@@ -975,11 +983,18 @@ server <- shinyServer(function(input, output, session) {
   })
 
   pdf_location <- reactive({
-    #browser()
+    printer("Hello.  I'm the code that compiles tex to pdf.")
+
     x <- tex()
     if(!length(x))return('1x1.png')
     stem <- isolate(conf$outputid) # basename(tempfile())
-    #browser()
+
+    # backup
+    writeLines(x, con = 'www/cache.tex')
+
+    # clean slate
+    unlink(file.path('www', paste0(stem, '.tex')))
+    unlink(file.path('www', paste0(stem, '.pdf')))
 
     # some tables need to be run twice!  Not sure why!
     # particularly for repeat headers with nesting.
@@ -991,11 +1006,18 @@ server <- shinyServer(function(input, output, session) {
       clean = FALSE
     )
 
+    # ignore incomplete pdf
+    unlink(file.path('www', paste0(stem, '.pdf')))
+
+
     path <- as.pdf(
       x,
       dir = 'www',
-      stem = stem
+      stem = stem,
+      clean = TRUE
     )
+
+    if(!file.exists(path)) return('1x1.png')
     basename(path)
   })
 
@@ -1004,9 +1026,12 @@ server <- shinyServer(function(input, output, session) {
   output$pdfview <- renderUI({
     #browser()
     if(!nrow(conf$x))return('PDF displays here.')
+    loc <- pdf_location()
+    printer('I built the pdf here:')
+    printer(getwd())
     tags$iframe(
       style="height:600px; width:100%; scrolling:yes",
-      src = paste0('/',pdf_location())
+      src = paste0('/', loc)
     )
   })
 

@@ -1,7 +1,7 @@
 Package: tablet
 Type: Package
 Title: Tabulate Descriptive Statistics in Multiple Formats
-Version: 0.3.1
+Version: 0.3.2
 Author: Tim Bergsma
 Maintainer: Tim Bergsma <bergsmat@gmail.com>
 BugReports: https://github.com/bergsmat/tablet/issues
@@ -21,6 +21,6 @@ Suggests: knitr, magrittr, rmarkdown, yamlet (>= 0.6.9), boot,
         testthat, shiny, shinyFiles, fs, haven, yaml, sortable,
         latexpdf, tools, csv
 NeedsCompilation: no
-Packaged: 2021-06-14 16:14:03 UTC; tim.bergsma
+Packaged: 2021-07-17 23:02:00 UTC; tim.bergsma
 Repository: CRAN
-Date/Publication: 2021-06-14 16:30:03 UTC
+Date/Publication: 2021-07-18 04:10:02 UTC
