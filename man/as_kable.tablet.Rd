@@ -29,9 +29,9 @@
 
 \item{escape}{passed to \code{\link[kableExtra]{kbl}}; defaults FALSE to allow header linebreaks}
 
-\item{escape_latex}{a function to pre-process column names and content if 'escape' is FALSE (e.g., manual escaping, latex only)}
+\item{escape_latex}{a function to pre-process column names and content if 'escape' is FALSE (e.g., manual escaping, latex only); default \code{\link{escape_latex}}}
 
-\item{escape_html}{a function to pre-process column names content if 'escape' is FALSE (e.g., manual escaping, html only)}
+\item{escape_html}{a function to pre-process column names and content if 'escape' is FALSE (e.g., manual escaping, html only)}
 
 \item{variable}{a column name for the variables}
 
@@ -54,14 +54,63 @@ like \code{\link[kableExtra]{kbl}}
 Renders a tablet.  Calls \code{\link[kableExtra]{kbl}} and implements
 special features like grouped columns.
 }
+\details{
+See also \code{\link{tablet.data.frame}}.
+Column \code{_tablet_name} must inherit 'character' and
+by default (in a latex render context) its values
+will eventually be processed by \code{escape_latex}.
+Thus, if \code{_tablet_name} is of class 'latex'
+it will be handled by method \code{\link{escape_latex.latex}}
+(which tries not to re-escape metacharacters).
+}
 \examples{
 library(boot)
 library(dplyr)
 library(magrittr)
+library(haven)
+library(yamlet)
+library(spork)
 melanoma \%>\%
   select(-time, -year) \%>\%
   mutate(sex = factor(sex), ulcer = factor(ulcer)) \%>\%
   group_by(status) \%>\%
   tablet \%>\%
   as_kable
+
+x <- system.file(package = 'tablet', 'shiny-examples/mesa/data/adsl.sas7bdat')
+x \%<>\% read_sas \%>\% data.frame
+decorations(x) # note weight in pounds
+x \%<>\% mutate(weight = signif(digits = 3, weight * 2.2))
+
+# calculate BMI by assuming all males are 1.75 m, all females 1.63 cm
+x \%<>\% mutate(height = ifelse(sex == 'F', 1.63, 1.75))
+x \%<>\% mutate(bmi = signif(digits = 3, weight / (height^2)))
+x \%<>\% filter(saffl == 'Y')
+x \%<>\% select(trt01a, age, sex, weight, bmi)
+x \%<>\% redecorate('
+trt01a: [ Treatment, [ Placebo, TRT 10 mg, TRT 20 mg ]]
+age:    [ Age, year ]
+sex:    [ Sex, [ Female: F, Male: M ]]
+weight: [ Body Weight, kg ]
+bmi:    [ Index_body mass, kg/m^2 ]
+')
+x \%<>\% resolve
+x \%<>\% group_by(trt01a)
+
+x \%>\% tablet \%>\% as_kable
+
+# supply default and unit-conditional latex titles
+x \%<>\% modify(title = concatenate(as_latex(as_spork(c(.data$label)))))
+x \%<>\% modify(
+age, weight, bmi,
+  title = concatenate(
+    sep = '',  # default ok in pdf
+    as_latex(
+      as_spork(
+        c(.data$label, ' (', .data$units, ')')
+      )
+    )
+  )
+)
+x \%>\% tablet \%>\% as_kable
 }

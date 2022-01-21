@@ -118,13 +118,27 @@ categoricals.data.frame <- function(x, ..., na.rm_fac = FALSE, exclude_fac = NUL
    # if('tablet_numeric' %in% lev)stop('levels of factors in x cannot include \'tablet_numeric\'')
    x <- classifiers(x,...)
    x <- mutate(x, across(where(is.factor), as.character))
-   x <- suppressWarnings( # attributes not identical across groups, they will be dropped
-      gather(x, factor_key = TRUE, key = '_tablet_name', value = '_tablet_level', var, na.rm = na.rm_fac)
+   x <- suppressWarnings(
+      # attributes not identical across groups, they will be dropped
+      # this is where _tablet_name is created
+      gather(
+         x,
+         factor_key = TRUE,
+         key = '_tablet_name',
+         value = '_tablet_level',
+         var,
+         na.rm = na.rm_fac
+      )
    )
    # possibly no var
    if(length(var) == 0){
       x <- slice(x, 0)
-      x <- mutate(x, `_tablet_name` = character(), `_tablet_level` = factor())
+      x <- mutate(
+         x,
+         # _tablet_name created here too
+         `_tablet_name` = factor(), # was character() before 0.4.3
+         `_tablet_level` = factor()
+      )
    }
    x <- mutate(x, `_tablet_level` = factor(`_tablet_level`, levels = lev, exclude = exclude_fac))
    x <- mutate(x, `_tablet_value` = 1L) # bogus value
@@ -157,8 +171,17 @@ numerics.data.frame <- function(x, ..., na.rm_num = FALSE){
    var <- setdiff(names(x), sapply(groups(x),rlang::as_string))
    x <- classifiers(x,...)
    x <- mutate(x, `_tablet_level` = factor('numeric')) # bogus level
-   x <- suppressWarnings( # attributes not identical across groups, they will be dropped
-      gather(x, factor_key = TRUE, key = '_tablet_name', value = '_tablet_value', var, na.rm = na.rm_num)
+   x <- suppressWarnings(
+      # attributes not identical across groups, they will be dropped
+      # this is also where _tablet_name is created
+      gather(
+         x,
+         factor_key = TRUE,
+         key = '_tablet_name',
+         value = '_tablet_value',
+         var,
+         na.rm = na.rm_num
+      )
    )
    if(!length(var)){
       x <- slice(x, 0)
@@ -575,6 +598,8 @@ groupwise.data.frame <- function(
 #' @export
 #' @return see methods
 #' @keywords internal
+#' @examples
+#' example(tablet.data.frame)
 tablet <- function(x, ...)UseMethod('tablet')
 
 #' Generate a Group-wise Tablet
@@ -761,6 +786,7 @@ tablet.groupwise <- function(
 
 
   # this is the only constructor for 'tablet'
+  x$`_tablet_name` <- as.character(x$`_tablet_name`)
   class(x) <- union('tablet', setdiff(class(x), 'groupwise'))
   x
 }
@@ -885,12 +911,21 @@ as_kable <- function(x, ...)UseMethod('as_kable')
 #' Renders a tablet.  Calls \code{\link[kableExtra]{kbl}} and implements
 #' special features like grouped columns.
 #'
+#' See also \code{\link{tablet.data.frame}}.
+#' Column \code{_tablet_name} must inherit 'character' and
+#' by default (in a latex render context) its values
+#' will eventually be processed by \code{escape_latex}.
+#' Thus, if \code{_tablet_name} is of class 'latex'
+#' it will be handled by method \code{\link{escape_latex.latex}}
+#' (which tries not to re-escape metacharacters).
+#'
+#'
 #' @param x \code{\link{tablet}}
 #' @param ... passed to \code{\link[kableExtra]{kbl}}
 #' @param booktabs passed to \code{\link[kableExtra]{kbl}}
 #' @param escape passed to \code{\link[kableExtra]{kbl}}; defaults FALSE to allow header linebreaks
-#' @param escape_latex a function to pre-process column names and content if 'escape' is FALSE (e.g., manual escaping, latex only)
-#' @param escape_html a function to pre-process column names content if 'escape' is FALSE (e.g., manual escaping, html only)
+#' @param escape_latex a function to pre-process column names and content if 'escape' is FALSE (e.g., manual escaping, latex only); default \code{\link{escape_latex}}
+#' @param escape_html  a function to pre-process column names and content if 'escape' is FALSE (e.g., manual escaping, html only)
 #' @param variable a column name for the variables
 #' @param col.names passed to \code{\link[kableExtra]{kbl}} after any linebreaking
 #' @param linebreak whether to invoke \code{\link[kableExtra]{linebreak}} for column names
@@ -906,12 +941,52 @@ as_kable <- function(x, ...)UseMethod('as_kable')
 #' library(boot)
 #' library(dplyr)
 #' library(magrittr)
+#' library(haven)
+#' library(yamlet)
+#' library(spork)
 #' melanoma %>%
 #'   select(-time, -year) %>%
 #'   mutate(sex = factor(sex), ulcer = factor(ulcer)) %>%
 #'   group_by(status) %>%
 #'   tablet %>%
 #'   as_kable
+#'
+#' x <- system.file(package = 'tablet', 'shiny-examples/mesa/data/adsl.sas7bdat')
+#' x %<>% read_sas %>% data.frame
+#' decorations(x) # note weight in pounds
+#' x %<>% mutate(weight = signif(digits = 3, weight * 2.2))
+#'
+#' # calculate BMI by assuming all males are 1.75 m, all females 1.63 cm
+#' x %<>% mutate(height = ifelse(sex == 'F', 1.63, 1.75))
+#' x %<>% mutate(bmi = signif(digits = 3, weight / (height^2)))
+#' x %<>% filter(saffl == 'Y')
+#' x %<>% select(trt01a, age, sex, weight, bmi)
+#' x %<>% redecorate('
+#' trt01a: [ Treatment, [ Placebo, TRT 10 mg, TRT 20 mg ]]
+#' age:    [ Age, year ]
+#' sex:    [ Sex, [ Female: F, Male: M ]]
+#' weight: [ Body Weight, kg ]
+#' bmi:    [ Index_body mass, kg/m^2 ]
+#' ')
+#' x %<>% resolve
+#' x %<>% group_by(trt01a)
+#'
+#' x %>% tablet %>% as_kable
+#'
+#' # supply default and unit-conditional latex titles
+#' x %<>% modify(title = concatenate(as_latex(as_spork(c(.data$label)))))
+#' x %<>% modify(
+#' age, weight, bmi,
+#'   title = concatenate(
+#'     sep = '',  # default ok in pdf
+#'     as_latex(
+#'       as_spork(
+#'         c(.data$label, ' (', .data$units, ')')
+#'       )
+#'     )
+#'   )
+#' )
+#' x %>% tablet %>% as_kable
 
 
 as_kable.tablet <- function(
@@ -940,7 +1015,20 @@ as_kable.tablet <- function(
    stopifnot(is.logical(escape), length(escape) == 1)
    x$`_tablet_sort` <- NULL
    index <- index(x)
-   x$`_tablet_name` <- NULL
+   # draws on _tablet_name, which should be character or c('latex', 'character')
+   nmsi <- names(index) # isolate to assign class
+   stopifnot(is.character(x$`_tablet_name`))
+   class(nmsi) <- class(x$`_tablet_name`) # class propagaton
+   x$`_tablet_name` <- NULL # done
+   if(!escape){
+      if (knitr::is_latex_output()) {
+         nmsi <- escape_latex(nmsi) # invokes class-specific method, possibly escaping or ignoring latex metacharacters
+      } else {
+         nmsi <- escape_html(nmsi)
+      }
+   }
+   # nmsi now as informed as possible ... assign back
+   names(index) <- nmsi
    #x$`_tablet_level` <- as.character(x$`_tablet_level`)
    x$`_tablet_stat` <- as.character(x$`_tablet_stat`)
    #x <- mutate(x, `_tablet_level` = ifelse(`_tablet_level` == 'numeric', `_tablet_stat`, `_tablet_level`))
@@ -967,7 +1055,7 @@ as_kable.tablet <- function(
          names(x) <- escape_latex(names(x), ...)
       } else {
          x[] <- lapply(x, escape_html, ...)
-         names(x) <- escape_html(names(x))
+         names(x) <- escape_html(names(x), ...)
       }
    }
 
@@ -1050,6 +1138,16 @@ as_kable.tablet <- function(
 #' NA, the values of arguments beginning with 'na.rm' or 'exclude'
 #' may not matter.
 #'
+#' Output includes the column \code{_tablet_name} which inherits character.
+#' Its values are typically the names of the original columns
+#' that were factor or numeric but not in groups(x). If the first
+#' of these had a label attribute or (priority) a title attribute
+#' with class 'latex', then \code{_tablet_name} is assigned the
+#' class 'latex' as well. It makes sense therefore to be consistent
+#' across input columns regarding the presence or not of a 'latex'
+#' label or title. By default, \code{\link{as_kable.tablet}} dispatches
+#' class-specific methods for \code{\link{escape_latex}}.
+#'
 #' @usage
 #' \method{tablet}{data.frame}(
 #'  x,
@@ -1094,7 +1192,7 @@ as_kable.tablet <- function(
 #' @param exclude_name whether to drop NA values of column name (for completeness); passed to \code{\link[tidyr]{gather}}
 #' @export
 #' @return 'tablet', with columns for each combination of groups, and:
-#' \item{_tablet_name}{observation identifier}
+#' \item{_tablet_name}{observation identifier: character, possibly 'latex', see details}
 #' \item{_tablet_level}{factor level (or special value 'numeric' for numerics)}
 #' \item{_tablet_stat}{the LHS of formulas in 'fac' and 'num'}
 #' \item{All (or value of 'all' argument)}{ungrouped results}
@@ -1154,6 +1252,20 @@ tablet.data.frame <- function(
       exclude_name = exclude_name
    )
    y <- tablet(y, ..., all = all, lab = lab ) # tablet.groupwise
+   y$`_tablet_name` <- as.character(y$`_tablet_name`)
+   # check for prime target inheriting 'latex' and coerce _tablet_name accordingly
+   fac <- sapply(x, is.factor)
+   num <- sapply(x, is.numeric)
+   col <- names(x)[fac | num]
+   if(length(col)){
+      prime <- col[[1]]
+      targets <- intersect(c('title','label'), names(attributes(x[[prime]])))
+      if(length(targets)){
+         target <- targets[[1]]
+         if(inherits(attr(x[[prime]], target), 'latex'))
+            class(y$`_tablet_name`) <- union('latex', class(y$`_tablet_name`))
+      }
+   }
    y
 }
 
@@ -1224,23 +1336,92 @@ splice.data.frame <- function(x, all = 'All', ...){
    out
 }
 
-#' Escape Latex
+#' Escape Special Characters for Latex
 #'
-#' Escapes latex markup.
-#' Adapted with gratitude from KableExtra internals.
+#' Escapes special characters in Latex context.  Generic, with method \code{link{escape_latex.default}}.
 #'
 #' @export
 #' @keywords internal
-#' @return character
-#' @param x character
+#' @return see methods
+#' @param x typically inherits character
+#' @param ... passed arguments
+#' @family escape
+#' @examples
+#' example(escape_latex.default)
+escape_latex <- function(x, ...)UseMethod('escape_latex')
+
+#' Escape Special Characters for Latex by Default
+#'
+#' Escapes text characters that have special meaning in latex.
+#' Adapted with gratitude from KableExtra internals.
+#' I.e. inactivates material that otherwise looks like latex.
+#'
+#' This function is used in \code{\link{as_kable.tablet}} in
+#' preparation for a call to \code{\link[kableExtra]{kbl}}.
+#' At kableExtra 1.3.4, sim_double_escape() only doubles
+#' primary (leading) backslashes; the \code{secondary} argument
+#' by default pre-doubles later backslashes to prevent
+#' certain display errors.  Behavior may change if kableExtra changes.
+#'
+#' @export
+#' @keywords internal
+#' @return latex
+#' @param x typically inherits character
+#' @param secondary logical: whether secondary backslashes should be pre-doubled
 #' @param ... ignored
+#' @family escape
 #' @examples
 #' escape_latex('([#$%&_{}])')
-escape_latex <- function(x, ...){
+escape_latex.default <- function(x, secondary = TRUE, ...){
    x = gsub("\\\\", "\\\\textbackslash", x)
    x = gsub("([#$%&_{}])", "\\\\\\1", x)
    x = gsub("\\\\textbackslash", "\\\\textbackslash{}", x)
    x = gsub("~", "\\\\textasciitilde{}", x)
    x = gsub("\\^", "\\\\textasciicircum{}", x)
+   if(secondary){
+      # hotfix for kableExtra::sim_double_escape @1.3.4
+      # https://github.com/haozhu233/kableExtra/issues/622
+      x = gsub('\\',  '\\\\', x, fixed = TRUE)
+      x = sub( '\\\\','\\',   x, fixed = TRUE) # first will be doubled later by as_kable etc.
+   }
+   x <- as_latex(x)
    x
 }
+
+#' Escape Latex for Class 'latex'
+#'
+#' Returns argument typically unmodified.
+#' Prevents accidental double-escaping
+#' of the same text.
+#'
+#' This function is used in \code{\link{as_kable.tablet}} in
+#' preparation for a call to \code{\link[kableExtra]{kbl}}.
+#' At kableExtra 1.3.4, sim_double_escape() only doubles
+#' primary (leading) backslashes; the \code{secondary} argument
+#' by default pre-doubles later backslashes to prevent
+#' certain display errors.  Behavior may change if kableExtra changes.
+
+#' @export
+#' @keywords internal
+#' @return latex
+#' @param x latex
+#' @param secondary logical: whether secondary backslashes should be pre-doubled
+#' @param ... ignored
+#' @family escape
+#' @examples
+#' identical(
+#' escape_latex('([#$%&_{}])'),
+#' escape_latex(escape_latex('([#$%&_{}])'))
+#' )
+#'
+escape_latex.latex <- function(x, secondary = TRUE, ...){
+   if(secondary){
+      # hotfix for kableExtra::sim_double_escape @1.3.4
+      # https://github.com/haozhu233/kableExtra/issues/622
+      x = gsub('\\',  '\\\\', x, fixed = TRUE)
+      x = sub( '\\\\','\\',   x, fixed = TRUE) # first will be doubled later by as_kable etc.
+   }
+   x <- as_latex(x)
+   x
+}
+

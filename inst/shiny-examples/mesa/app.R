@@ -675,35 +675,39 @@ server <- shinyServer(function(input, output, session) {
     suppressWarnings(x %<>% modify(title = label))
     suppressWarnings(x %<>% modify(title = paste0(label, ' (', .data$units, ')')))
 
-    if(length(input$labelhtml) == 1){
-      if(input$labelhtml == 'yes'){
-        suppressWarnings(x %<>% modify(html = as_html(as_spork(.data$label)))) # default
-        suppressWarnings(x %<>% modify(html_units = paste0(
-          as_html(as_spork(' (')),
-          as_html(as_spork(.data$units)),
-          as_html(as_spork(')'))
-        )))
-        suppressWarnings(x %<>% modify(html = paste0(html, html_units))) # succeeds conditional on units
-      }
-    }
-    if(length(input$labeltex) == 1){
-      if(input$labeltex == 'yes'){
-        suppressWarnings(x %<>% modify(tex = as_latex(as_spork(.data$label))))
-        suppressWarnings(x %<>% modify(tex_units = paste0(
-          as_latex(as_spork(' (')),
-          as_latex(as_spork(.data$units)),
-          as_latex(as_spork(')'))
-        )))
-        suppressWarnings(x %<>% modify(tex = paste0(tex, tex_units)))
+    # conditionally creating scripted labels has the
+    # unintended effect of making the pdf and preview displays
+    # co-dependent, since the output of factorized() changes
+    # when either flag changes.
+    # Meanwhile, it is easy and cheap to calculate html/tex labels
+    # unconditionally, but use them conditionally.
+    # Accordingly, we unconditionalize the following code.
 
-        # at the moment, sim_double_escape()
-        # only doubles first element.
-        # we pre-double other escapes.
-        # "$\\mathrm{\\textrm{Displacement}}$$\\mathrm{\\textrm{ } \\textrm{(}}$$\\mathrm{\\textrm{in}^{\\textrm{3}}}$$\\mathrm{\\textrm{)}}$"
-        x %<>% modify(tex = gsub('\\','\\\\', .data$tex, fixed = TRUE))
-        x %<>% modify(tex = sub('\\\\','\\', .data$tex, fixed = TRUE)) # first will be doubled later
-      }
-    }
+    # if(length(input$labelhtml) == 1){
+    #   printer('factorized - labelhtml')
+    #   if(input$labelhtml == 'yes'){
+        suppressWarnings(x %<>% modify(html = as_html(as_spork(.data$name)))) # default
+        suppressWarnings(x %<>% modify(html = as_html(as_spork(.data$label))))
+        suppressWarnings(x %<>% modify(
+          html = concatenate(as_html(as_spork(c(.data$label, ' (', .data$units,')'))))
+        ))
+    #   }
+    # }else{printer('factorized - no labelhtml')}
+    # if(length(input$labeltex) == 1){
+    #   printer('factorized - labeltex')
+    #
+    #   if(input$labeltex == 'yes'){
+        # browser()
+        # we need default 'latex' tex attributes for all columns ...
+        suppressWarnings(x %<>% modify(tex = as_latex(as_spork(.data$name))))
+        suppressWarnings(x %<>% modify(tex = as_latex(as_spork(.data$label))))
+        suppressWarnings(x %<>% modify(
+          # should retain class 'latex'
+          # currently pre-doubled by escape_latex.latex
+          tex = concatenate(as_latex(as_spork(c(.data$label, ' (', .data$units,')'))))
+        ))
+    #   }
+    # }else{printer('factorized - no labeltex')}
     x
   })
 
@@ -762,6 +766,9 @@ server <- shinyServer(function(input, output, session) {
       if(input$labelhtml == 'yes'){
         args$x %<>% modify(title = .data$html)
       }
+    } else {
+      printer('no labelhtml yet')
+      return()
     }
     x <- do.call(fun, args)
     x %<>% as_kable(caption = conf$title)
@@ -772,6 +779,7 @@ server <- shinyServer(function(input, output, session) {
 
   tex <- reactive({
     printer('tex')
+    # browser()
     old <- opts_knit$get('out.format')
     opts_knit$set(out.format = 'latex')
     # options(knitr.kable.NA = escape_latex(conf$na_string))
@@ -780,24 +788,40 @@ server <- shinyServer(function(input, output, session) {
     fun <- tablet
     if(conf$sequential) fun <- splice
     args <- args()
+    # browser()
     if(!is.null(input$labeltex)){
+      # browser()
       if(input$labeltex == 'yes'){
         printer('using spork')
-        args$x %<>% modify(title = .data$tex)
+        args$x %<>% modify(title = .data$tex) # should have class 'latex', unescaped
         #args$x %<>% modify(codelist = lapply(codelist, kableExtra:::escape_latex2))
       } else {
-        args$x %<>% modify(title = kableExtra:::escape_latex(title))
+        # args$x %<>% modify(title = kableExtra:::escape_latex(title))
+        # otherwise trap specials and pre-double secondary backslash
+        args$x %<>% modify(title = tablet::escape_latex(title))
         #args$x %<>% modify(codelist = lapply(codelist, kableExtra:::escape_latex2))
       }
     } else {
-      args$x %<>% modify(title = kableExtra:::escape_latex(title))
+      printer('no labeltex yet')
+      return()
+      # next maybe unnecessary if as_kable auto-escapes names(index) in >= 0.4.2
+      # args$x %<>% modify(title = kableExtra:::escape_latex(title))
+
     }
-        x <- do.call(fun, args)
+
+    # call tablet
+    x <- do.call(fun, args)
+
+
     if(!nrow(x)){
       showNotification(duration = 5, type = 'error', 'nothing selected')
       return(character(0))
     }
 
+    # _tablet_name has been thoroughly pre-escaped for all cases.
+    # however, it is created as factor.
+    # we flag it as latex to invoke the right method in as_kable(escape_latex = tablet::escape_latex)
+    x %<>% mutate(`_tablet_name` = as_latex(`_tablet_name`))
     x %<>% as_kable(format = 'latex', caption = escape_latex(conf$title), longtable = TRUE)
     if(length(input$repeatheader) == 1){
       if(input$repeatheader == 'yes'){
@@ -1077,7 +1101,7 @@ server <- shinyServer(function(input, output, session) {
 
     # some tables need to be run twice!  Not sure why!
     # particularly for repeat headers with nesting.
-
+    # browser()
     path <- try(
       as.pdf(
         x,
@@ -1100,6 +1124,7 @@ server <- shinyServer(function(input, output, session) {
         ignore.stdout = TRUE
       )
     )
+
 
     if(inherits(path, 'try-error')){
       showNotification(as.character(path), type = 'error', duration = 5)
