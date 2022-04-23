@@ -78,7 +78,9 @@ classifiers.data.frame <- function(x, ...){
    grp <- groups(x)
    x <- ungroup(x)
    x <- add_count(x, name = '_tablet_N') #, wt = n())
+   suppressMessages(
    x <- select(x, `_tablet_N`, everything())
+   )
    for(col in grp){
       #nm <- paste0('n_', col)
       x <- group_by(x, .data[[col]], .add = TRUE)
@@ -91,67 +93,142 @@ classifiers.data.frame <- function(x, ...){
 #' Identify Categoricals for Data Frame
 #'
 #' Identifies categorical columns: literally, factors. Stacks factor levels and supplies value = 1.
-#' @param x data.frame; names must not include 'name' or 'level'
+#' @param x data.frame; names must not start with '_tablet_'
 #' @param ... passed to \code{\link{classifiers}}
 #' @param na.rm_fac whether to drop NA observations; passed to \code{\link[tidyr]{gather}} as na.rm
 #' @param exclude_fac which factor levels to exclude; see \code{\link{factor}} (exclude)
+#' @param all_levels whether to supply records for unobserved levels
 #' @importFrom dplyr groups ungroup add_tally add_count select group_by mutate
-#' @importFrom tidyr gather
-#' @importFrom dplyr all_of across everything
+#' @importFrom tidyr gather replace_na
+#' @importFrom dplyr all_of across everything full_join anti_join
+#' @importFrom magrittr %>% %<>%
 #' @export
+#' @method categoricals data.frame
 #' @keywords internal
 #' @return same class as x
 #' @examples
 #' example(classifiers)
 #' categoricals(x)
-#' levels(categoricals(x)$level)
-categoricals.data.frame <- function(x, ..., na.rm_fac = FALSE, exclude_fac = NULL){
-   for(i in c('_tablet_name','_tablet_level','_tablet_value'))if(i %in% names(x))stop('names x cannot include ',i)
-   if(any(duplicated(names(x))))stop('names cannot be duplicated')
-   x <- select(x, !!!groups(x),where(is.factor))
-   var <- setdiff(names(x), sapply(groups(x), rlang::as_string))
-   for(i in var){
-      # prepend each factor level with column name for uniqueness
-      levels(x[[i]]) <- paste(sep = '_tablet_', i, levels(x[[i]]))
+#' levels(categoricals(x)$`_tablet_level`)
+
+categoricals.data.frame <- function(
+  x,
+  ...,
+  na.rm_fac = FALSE,
+  exclude_fac = NULL,
+  all_levels = FALSE
+){
+  y <- x
+  for(i in c('_tablet_name','_tablet_level','_tablet_value'))if(i %in% names(x))stop('names x cannot include ',i)
+  if(any(duplicated(names(x))))stop('names cannot be duplicated')
+  x <- select(x, !!!groups(x),where(is.factor))
+  var <- setdiff(names(x), sapply(groups(x), rlang::as_string))
+  for(i in var){
+    # prepend each factor level with column name for uniqueness
+    levels(x[[i]]) <- paste(sep = '_tablet_', i, levels(x[[i]]))
+  }
+  lev <- unlist(lapply(select(ungroup(x), all_of(var)), levels))
+
+  # if('tablet_numeric' %in% lev)stop('levels of factors in x cannot include \'tablet_numeric\'')
+  x <- classifiers(x,...)
+  x <- mutate(x, across(where(is.factor), as.character))
+  x <- suppressWarnings(
+    # attributes not identical across groups, they will be dropped
+    # this is where _tablet_name is created
+    gather(
+      x,
+      factor_key = TRUE,
+      key = '_tablet_name',
+      value = '_tablet_level',
+      var,
+      na.rm = na.rm_fac
+    )
+  )
+  # possibly no var
+  if(length(var) == 0){
+    x <- slice(x, 0)
+    x <- mutate(
+      x,
+      # _tablet_name created here too
+      `_tablet_name` = factor(), # was character() before 0.4.3
+      `_tablet_level` = factor()
+    )
+  }
+  x <- mutate(x, `_tablet_level` = factor(`_tablet_level`, levels = lev, exclude = exclude_fac))
+  x <- mutate(x, `_tablet_value` = 1L) # bogus value
+  # missing observation of some category is moot if na.rm = TRUE
+  # if exclude is NULL, NA is a distinct category and value should be available for tally
+  # but if na not removed and not categorized, it should be passed to summary functions as na
+  # ???
+  # if(!na.rm){
+  #    if(!is.null(exclude)){
+  #       x <- mutate(x, value = ifelse(is.na(level), NA_integer_, value))
+  #    }
+  # }
+
+  if(!all_levels) return(x)
+  if(length(var) == 0) return(x) # at 0.5.7
+  # if(!length(groups(x))) return(x) # strike at 0.5.7?
+  # what groups must be populated?
+
+  template <- function(x, ...)UseMethod('template')
+  template.factor <- function(x,...){
+    # create vector of all levels
+    levs <- levels(x)
+    x <- x[0]
+    for(i in seq_along(levs))x[i] <- levs[i]
+    x
+  }
+  groups <-  x %>% select(c(!!!groups(x),`_tablet_level`)) #, `_tablet_N`, `_tablet_n`)) %>% unique
+  groups <- groups[0,,drop = FALSE]
+  groups <- lapply(groups, template.factor)
+  # names(groups) <- groups(x)
+  for(g in names(groups)){
+    groups[[g]] <- data.frame(groups[[g]])
+    names(groups[[g]]) <- g
+  }
+  while (length(groups) > 1){
+    groups[[1]] <- full_join(by = character(), groups[[1]], groups[[2]])
+    groups[[2]] <- NULL
+  }
+ groups <- groups[[1]]
+ groups$`_tablet_N` <- rep(max(0, unique(x$`_tablet_N`)), nrow(groups))
+#  groups %<>% left_join(x %>% select(c(!!!groups(x)), `_tablet_n`, `_tablet_level`))
+ zz <- x %>% select(c(!!!groups(x)), `_tablet_n`) %>% unique # at 0.5.7
+ common <- intersect(names(groups), names(zz))
+ groups %<>% left_join(zz, by = common)
+
+ groups$`_tablet_n` %<>% replace_na(0L)
+
+  # what factors are in play?
+ factors <- y %>% select(where(is.factor)) %>% names
+ factors %<>% setdiff(groups(y))
+ `_tablet_name` <- character(0)
+ `_tablet_level` <- character(0)
+ for(i in factors){
+   levs <- levels(y[[i]])
+   for(lev in levs){
+     `_tablet_name` %<>% append(i)
+     `_tablet_level` %<>% append(paste0(i, '_tablet_', lev))
    }
-   lev <- unlist(lapply(select(ungroup(x), all_of(var)), levels))
-   # if('tablet_numeric' %in% lev)stop('levels of factors in x cannot include \'tablet_numeric\'')
-   x <- classifiers(x,...)
-   x <- mutate(x, across(where(is.factor), as.character))
-   x <- suppressWarnings(
-      # attributes not identical across groups, they will be dropped
-      # this is where _tablet_name is created
-      gather(
-         x,
-         factor_key = TRUE,
-         key = '_tablet_name',
-         value = '_tablet_level',
-         var,
-         na.rm = na.rm_fac
-      )
-   )
-   # possibly no var
-   if(length(var) == 0){
-      x <- slice(x, 0)
-      x <- mutate(
-         x,
-         # _tablet_name created here too
-         `_tablet_name` = factor(), # was character() before 0.4.3
-         `_tablet_level` = factor()
-      )
-   }
-   x <- mutate(x, `_tablet_level` = factor(`_tablet_level`, levels = lev, exclude = exclude_fac))
-   x <- mutate(x, `_tablet_value` = 1L) # bogus value
-   # missing observation of some category is moot if na.rm = TRUE
-   # if exclude is NULL, NA is a distinct category and value should be available for tally
-   # but if na not removed and not categorized, it should be passed to summary functions as na
-   # ???
-   # if(!na.rm){
-   #    if(!is.null(exclude)){
-   #       x <- mutate(x, value = ifelse(is.na(level), NA_integer_, value))
-   #    }
-   # }
-   x
+ }
+ stopifnot(length(`_tablet_name`) == length(`_tablet_level`))
+ factors <- data.frame(`_tablet_name`,`_tablet_level`, check.names = F)
+ factors$`_tablet_name` %<>% factor(levels = levels(x$`_tablet_name`))
+ factors$`_tablet_level` %<>% factor(levels = levels(x$`_tablet_level`))
+ suppressMessages(
+ #  groups %<>% full_join(factors, by = character())
+   groups %<>% full_join(factors) # at 0.5.7
+ )
+ suppressMessages(
+ groups %<>% anti_join(x %>% select(-c(`_tablet_N`, `_tablet_n`))) # exclude combos already observed
+ )
+ groups$`_tablet_value` <- rep(0L, nrow(groups))
+ stopifnot(setequal(names(groups), names(x)))
+ x %<>% bind_rows(groups)
+ x %<>% arrange(!!!groups(x), `_tablet_name`, `_tablet_level`)
+ x
+
 }
 
 #' Identify Numerics for Data Frame
@@ -160,13 +237,17 @@ categoricals.data.frame <- function(x, ..., na.rm_fac = FALSE, exclude_fac = NUL
 #' @param x data.frame; names must not include 'name' or 'level'
 #' @param ... passed to \code{\link{classifiers}}
 #' @param na.rm_num whether to drop NA observations; passed to \code{\link[tidyr]{gather}} as na.rm
+#' @param all_levels whether to supply records for unobserved levels
 #' @importFrom dplyr groups ungroup tally add_count select group_by mutate slice
 #' @importFrom tidyr gather
 #' @export
+#' @method numerics data.frame
 #' @keywords internal
 #' @return same class as x
-numerics.data.frame <- function(x, ..., na.rm_num = FALSE){
+numerics.data.frame <- function(x, ..., na.rm_num = FALSE, all_levels = FALSE){
    for(i in c('_tablet_level', '_tablet_name','_tablet_value'))if(i %in% names(x))stop('names x cannot include ',i)
+
+   y <- x
    x <- select(x, !!!groups(x),where(is.numeric))
    var <- setdiff(names(x), sapply(groups(x),rlang::as_string))
    x <- classifiers(x,...)
@@ -185,7 +266,73 @@ numerics.data.frame <- function(x, ..., na.rm_num = FALSE){
    )
    if(!length(var)){
       x <- slice(x, 0)
+      x$`_tablet_name`<- factor()
+      x$`_tablet_value` <- numeric(0)
    }
+
+   if(!all_levels)return(x)
+   if(!length(groups(x)))return(x) # ? at 0.5.7
+
+   # what groups must be populated?
+
+   template <- function(x, ...)UseMethod('template')
+   template.factor <- function(x,...){
+     # create vector of all levels
+     levs <- levels(x)
+     x <- x[0]
+     for(i in seq_along(levs))x[i] <- levs[i]
+     x
+   }
+   groups <-  x %>% select(c(!!!groups(x))) #, `_tablet_N`, `_tablet_n`)) %>% unique
+   groups <- groups[0,]
+   groups <- lapply(groups, template.factor)
+   names(groups) <- groups(x)
+   for(g in names(groups)){
+     groups[[g]] <- data.frame(groups[[g]])
+     names(groups[[g]]) <- g
+   }
+   while (length(groups) > 1){
+     groups[[1]] <- full_join(by = character(), groups[[1]], groups[[2]])
+     groups[[2]] <- NULL
+   }
+   groups <- groups[[1]]
+   groups$`_tablet_N` <- max(0, unique(x$`_tablet_N`))
+   suppressMessages(
+   groups %<>% left_join(x %>% select(c(!!!groups(x)), `_tablet_n`))
+   )
+   groups$`_tablet_n` %<>% replace_na(0L)
+
+   # what numerics are in play?
+   numerics <- y %>%
+     ungroup %>%
+     select(-where(is.factor)) %>%
+     names
+
+
+   numerics %<>% setdiff(groups(y))
+   `_tablet_name` <- character(0)
+   `_tablet_level` <- character(0)
+   for(i in numerics){
+     `_tablet_name` %<>% append(i)
+     `_tablet_level` %<>% append('numeric')
+
+   }
+   stopifnot(length(`_tablet_name`) == length(`_tablet_level`))
+   numerics <- data.frame(`_tablet_name`,`_tablet_level`, check.names = F)
+   numerics$`_tablet_name` %<>% factor(levels = levels(x$`_tablet_name`))
+   numerics$`_tablet_level` %<>% factor(levels = levels(x$`_tablet_level`))
+   suppressMessages(
+   groups %<>% full_join(numerics, by = character())
+   )
+   suppressMessages(
+   groups %<>% anti_join(x %>% select(-c(`_tablet_N`, `_tablet_n`))) # exclude combos already observed
+   )
+  # groups$`_tablet_value` <- rep(0L, nrow(groups))
+   groups$`_tablet_value` <- rep(NA_real_, nrow(groups))
+
+   stopifnot(setequal(names(groups), names(x)))
+   x %<>% bind_rows(groups)
+   x %<>% arrange(!!!groups(x), `_tablet_name`, `_tablet_level`)
    x
 }
 
@@ -271,7 +418,7 @@ devalued.observations <- function(
    x,
    ...,
    fun = list(
-      sum ~ signif(digits = 3,    sum(x, na.rm = TRUE)),
+      sum ~ sum(x, na.rm = TRUE),
       pct ~ signif(digits = 3,    sum / n * 100       ),
       ave ~ signif(digits = 3,   mean(x, na.rm = TRUE)),
       std ~ signif(digits = 3,     sd(x, na.rm = TRUE)),
@@ -550,7 +697,7 @@ groupwise <- function(x, ...)UseMethod('groupwise')
 groupwise.data.frame <- function(
    x,
    fun = list(
-      sum ~ signif(digits = 3,    sum(x, na.rm = TRUE)),
+      sum ~ sum(x, na.rm = TRUE),
       pct ~ signif(digits = 3,    sum / n * 100    ),
       ave ~ signif(digits = 3,   mean(x, na.rm = TRUE)),
       std ~ signif(digits = 3,     sd(x, na.rm = TRUE)),
@@ -567,13 +714,13 @@ groupwise.data.frame <- function(
    ),
    ...
 ){
-   # promote labels and titles where present
-   for(i in seq_len(ncol(x))){
-      lab <- attr(x[[i]],'label')
-      ttl <- attr(x[[i]], 'title')
-      if(length(lab)) names(x)[[i]] <- lab
-      if(length(ttl)) names(x)[[i]] <- ttl
-   }
+   # # promote labels and titles where present
+   # for(i in seq_len(ncol(x))){
+   #    lab <- attr(x[[i]],'label')
+   #    ttl <- attr(x[[i]], 'title')
+   #    if(length(lab)) names(x)[[i]] <- lab
+   #    if(length(ttl)) names(x)[[i]] <- ttl
+   # }
 
    # execute data.frame -> observations -> devalued -> widgets
    y <- groupfull(x, fun = fun, fac = fac, num = num, ...)
@@ -1083,13 +1230,21 @@ as_kable.tablet <- function(
    for(i in seq_along(headerlist)){
       y <- add_header_above(y, headerlist[[i]])
    }
-   y <- do.call(
-      kableExtra::pack_rows,
-      c(
-         list(y, index = index), # @0.4.9 removing ', escape = escape
-         pack_rows
-      )
-   )
+
+   # at 0.5.7, skip this if length(index) == 0
+   # attempt to prevent error in mesa() when
+   # tabulating virtual category agegr1 in isolation:
+   # Error in `$<-.data.frame`(`*tmp*`, "start", value = 1) : replacement has 1 row, data has 0
+
+   #if(length(index) > 0){
+     y <- do.call(
+        kableExtra::pack_rows,
+        c(
+           list(y, index = index), # @0.4.9 removing ', escape = escape
+           pack_rows
+        )
+     )
+  # }
    y
 }
 
@@ -1155,7 +1310,7 @@ as_kable.tablet <- function(
 #'  na.rm = FALSE,
 #'  all = 'All',
 #'  fun = list(
-#'   sum ~ signif(digits = 3,     sum(x,  na.rm = TRUE)),
+#'   sum ~ sum(x,  na.rm = TRUE),
 #'   pct ~ signif(digits = 3,     sum / n * 100        ),
 #'   ave ~ signif(digits = 3,    mean(x,  na.rm = TRUE)),
 #'   std ~ signif(digits = 3,      sd(x,  na.rm = TRUE)),
@@ -1176,7 +1331,8 @@ as_kable.tablet <- function(
 #'  na.rm_fac = na.rm,
 #'  na.rm_num = na.rm,
 #'  exclude_fac = NULL,
-#'  exclude_name = NULL
+#'  exclude_name = NULL,
+#'  all_levels = FALSE
 #' )
 #' @param x data.frame (possibly grouped)
 #' @param ... substitute formulas for elements of fun, fac, num, lab
@@ -1190,9 +1346,12 @@ as_kable.tablet <- function(
 #' @param na.rm_num whether to drop NA numeric observations; passed to \code{\link[tidyr]{gather}} as na.rm
 #' @param exclude_fac which factor levels to exclude; see \code{\link{factor}} (exclude)
 #' @param exclude_name whether to drop NA values of column name (for completeness); passed to \code{\link[tidyr]{gather}}
+#' @param all_levels whether to supply records for unobserved levels
+#' @importFrom dplyr all_of across everything full_join anti_join
+#' @importFrom magrittr %>% %<>%
 #' @export
 #' @return 'tablet', with columns for each combination of groups, and:
-#' \item{_tablet_name}{observation identifier: character, possibly 'latex', see details}
+#' \item{_tablet_name}{observation identifier: character, possibly 'latex', see details; has a codelist attribute the values of which are the original column names}
 #' \item{_tablet_level}{factor level (or special value 'numeric' for numerics)}
 #' \item{_tablet_stat}{the LHS of formulas in 'fac' and 'num'}
 #' \item{All (or value of 'all' argument)}{ungrouped results}
@@ -1214,7 +1373,7 @@ tablet.data.frame <- function(
    na.rm = FALSE,
    all = 'All',
    fun = list(
-      sum ~ signif(digits = 3,    sum(x, na.rm = TRUE)),
+      sum ~ sum(x, na.rm = TRUE),
       pct ~ signif(digits = 3,    sum / n * 100    ),
       ave ~ signif(digits = 3,   mean(x, na.rm = TRUE)),
       std ~ signif(digits = 3,     sd(x, na.rm = TRUE)),
@@ -1235,7 +1394,8 @@ tablet.data.frame <- function(
    na.rm_fac = na.rm,
    na.rm_num = na.rm,
    exclude_fac = NULL,
-   exclude_name = NULL
+   exclude_name = NULL,
+   all_levels = FALSE
 ){
    y <- groupwise( # groupwise.data.frame
       x,
@@ -1249,13 +1409,29 @@ tablet.data.frame <- function(
       na.rm_fac = na.rm_fac,
       na.rm_num = na.rm_num,
       exclude_fac = exclude_fac,
-      exclude_name = exclude_name
+      exclude_name = exclude_name,
+      all_levels = all_levels
    )
    y <- tablet(y, ..., all = all, lab = lab ) # tablet.groupwise
    y$`_tablet_name` <- as.character(y$`_tablet_name`)
+
+   codes <- unique(y$`_tablet_name`)
+   decod <- codes
+   for(i in seq_along(codes)){
+     lbl <- attr(x[[ codes[[i]] ]],'label')
+     ttl <- attr(x[[ codes[[i]] ]], 'title')
+     if(length(lbl)) decod[[i]] <- lbl
+     if(length(ttl)) decod[[i]] <- ttl
+   }
+   y$`_tablet_name` %<>% factor(levels = codes, labels = decod) %>% as.character
+   codelist <- codes
+   names(codelist) <- decod
+   codelist %<>% as.list
+   attr(y$`_tablet_name`, 'codelist') <- codelist
+
    # check for prime target inheriting 'latex' and coerce _tablet_name accordingly
-   fac <- sapply(x, is.factor)
-   num <- sapply(x, is.numeric)
+   fac <- unlist(sapply(x, is.factor)) # unlist necessary because 0 columns returns list() instead of logical vector
+   num <- unlist(sapply(x, is.numeric))
    col <- names(x)[fac | num]
    if(length(col)){
       prime <- col[[1]]
@@ -1268,6 +1444,7 @@ tablet.data.frame <- function(
    }
    y
 }
+
 
 #' Splice Some Things Together
 #'
@@ -1423,5 +1600,75 @@ escape_latex.latex <- function(x, secondary = TRUE, ...){
    }
    x <- as_latex(x)
    x
+}
+
+
+#' Relativize a Filepath
+#'
+#' Relativizes a filepath.  Somewhat the opposite of \code{\link{normalizePath}}.
+#'
+#' x and dir are first normalized, then x is expressed relative to dir.
+#' If x and dir are on different drives (i.e. C:/ D:/)
+#' x is returned as an absolute path.
+#'
+#' @export
+#' @keywords internal
+#' @param x length one character: a file path
+#' @param dir a reference directory
+#' @param sep path separator
+#' @param ... ignored arguments
+#'
+
+relativizePath <- function (x, dir = getwd(), sep = "/", ...)
+{
+  stopifnot(length(x) == 1)
+  stopifnot(file.info(dir)$isdir)
+  y <- normalizePath(x, winslash = "/")
+  z <- normalizePath(dir, winslash = "/")
+  if (!identical(substr(y, 1, 1), substr(z, 1, 1))) {
+    return(y)
+  }
+  y <- strsplit(y, sep)[[1]]
+  z <- strsplit(z, sep)[[1]]
+  count <- 0
+  while (length(y) && length(z) && y[[1]] == z[[1]]) {
+    y <- y[-1]
+    z <- z[-1]
+  }
+  z <- rep("..", length(z))
+  y <- c(z, y)
+  y <- do.call(file.path, as.list(y))
+  y
+}
+
+
+#' Absolutize a Filepath
+#'
+#' Absolutizes a filepath.  Somewhat the opposite of \code{\link{relativizePath}}.
+#'
+#' x and dir are first normalized, then x is expressed relative to dir.
+#' If x and dir are on different drives (i.e. C:/ D:/)
+#' x is returned as an absolute path.
+#'
+#' @export
+#' @keywords internal
+#' @importFrom fs is_absolute_path
+#' @param x length one character: a file path
+#' @param dir a reference directory
+#' @param winslash path separator on windows, passed to \code{\link{normalizePath}}
+#' @param ... ignored arguments
+#'
+
+absolutizePath <- function (x, dir = getwd(), winslash = "/", ...){
+  stopifnot(length(x) == 1)
+  stopifnot(is.character(x))
+  stopifnot(length(dir) == 1)
+  stopifnot(is.character(dir))
+  if(is_absolute_path(x))return(x)
+  out <- normalizePath(
+    winslash = '/',
+    file.path(dir,x)
+  )
+  return(out)
 }
 

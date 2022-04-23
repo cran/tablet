@@ -10,7 +10,7 @@
  na.rm = FALSE,
  all = 'All',
  fun = list(
-  sum ~ signif(digits = 3,     sum(x,  na.rm = TRUE)),
+  sum ~ sum(x,  na.rm = TRUE),
   pct ~ signif(digits = 3,     sum / n * 100        ),
   ave ~ signif(digits = 3,    mean(x,  na.rm = TRUE)),
   std ~ signif(digits = 3,      sd(x,  na.rm = TRUE)),
@@ -31,7 +31,8 @@
  na.rm_fac = na.rm,
  na.rm_num = na.rm,
  exclude_fac = NULL,
- exclude_name = NULL
+ exclude_name = NULL,
+ all_levels = FALSE
 )
 }
 \arguments{
@@ -58,10 +59,12 @@
 \item{exclude_fac}{which factor levels to exclude; see \code{\link{factor}} (exclude)}
 
 \item{exclude_name}{whether to drop NA values of column name (for completeness); passed to \code{\link[tidyr]{gather}}}
+
+\item{all_levels}{whether to supply records for unobserved levels}
 }
 \value{
 'tablet', with columns for each combination of groups, and:
-\item{_tablet_name}{observation identifier: character, possibly 'latex', see details}
+\item{_tablet_name}{observation identifier: character, possibly 'latex', see details; has a codelist attribute the values of which are the original column names}
 \item{_tablet_level}{factor level (or special value 'numeric' for numerics)}
 \item{_tablet_stat}{the LHS of formulas in 'fac' and 'num'}
 \item{All (or value of 'all' argument)}{ungrouped results}

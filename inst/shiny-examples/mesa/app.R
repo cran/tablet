@@ -154,7 +154,8 @@ server <- shinyServer(function(input, output, session) {
     labelhtml  = 'no',
     labeltex   = 'no',
     repeathead = 'no',
-    repeatfoot = 'no'
+    repeatfoot = 'no',
+    tablet     = as.character(packageVersion('tablet'))
   )
 
   reset_conf <- function(){
@@ -177,12 +178,14 @@ server <- shinyServer(function(input, output, session) {
     conf$footnotes  <- '(footnotes here)'
  #   conf$na_string  <- 'NA'
     conf$x          <- data.frame()
+    conf$imputed    <- character()
     conf$mv         <- 0
     conf$editor     <- NULL
     labelhtml       <- 'no'
     labeltex        <- 'no'
     repeathead      <- 'no'
     repeatfoot      <- 'no'
+    tablet          <- as.character(packageVersion('tablet'))
   }
 
 
@@ -300,15 +303,49 @@ server <- shinyServer(function(input, output, session) {
     fileinfo <- parseSavePath(ui_volumes, input$saveconf)
     if (nrow(fileinfo) > 0) {
       path <- as.character(fileinfo$datapath)
+
       vals <- isolate(
         reactiveValuesToList(conf)[
           !names(conf) %in% c(
             'x',
             'confpath',
-            'editor'
+            'editor',
+            'mv',
+            'imputed'
           )
         ]
       )
+      # dictate storage order!
+      vals <- vals[c(
+        'filepath',
+        'metapath',
+        'selected',
+        'group_by',
+        'filter_by',
+        'keep',
+        'sequential',
+        'outputid',
+        'title',
+        'lhead1',
+        'lhead2',
+        'rhead1',
+        'rhead2',
+        'footnotes',
+        'repeathead',
+        'repeatfoot',
+        'cont',
+        'labelhtml',
+        'labeltex',
+        'tablet'
+      )]
+
+      # note: below is the only place in the application where the configuration is written to storage.
+      # filepath and metapath, like confpath, are stored internally as absolute paths.
+      # but on write they are expressed relative to confpath directory,
+      # and on read they are understood relative to confpath directory (and converted to absolute).
+
+      if(length(vals$filepath))vals$filepath <- relativizePath(vals$filepath, dirname(path))
+      if(length(vals$metapath))vals$metapath <- relativizePath(vals$metapath, dirname(path))
       res <- try(write_yaml(vals, path)) # only reads on save
       res <- !inherits(res, 'try-error')
       dur <- 10
@@ -514,7 +551,15 @@ server <- shinyServer(function(input, output, session) {
       reset_conf()
       return()
     }
-    if(!file.exists(saved$filepath)){
+
+    if(
+      !file.exists(
+        absolutizePath(
+          saved$filepath,
+          dirname(conf$confpath)
+        )
+      )
+    ){
       showNotification(duration = NULL, type = 'error', 'configured file path not found')
       reset_conf()
       return()
@@ -528,8 +573,13 @@ server <- shinyServer(function(input, output, session) {
 
     # update internal configuration from saved configuration
 
-    if(!is.null(saved$filepath))conf$filepath <- saved$filepath
-    if(!is.null(saved$metapath))conf$metapath <- saved$metapath
+    # note: below is the only place in the application where the configuration is read from storage.
+    # filepath and metapath, like confpath, are stored internally as absolute paths.
+    # but on write they are expressed relative to confpath directory,
+    # and on read they are understood relative to confpath directory (and converted to absolute).
+
+    if(!is.null(saved$filepath))conf$filepath <- absolutizePath(saved$filepath, dirname(conf$confpath))
+    if(!is.null(saved$metapath))conf$metapath <- absolutizePath(saved$metapath, dirname(conf$confpath))
     if(!is.null(saved$selected))conf$selected <- saved$selected
     if(!is.null(saved$filter_by))conf$filter_by <- saved$filter_by
     if(!is.null(saved$keep))conf$keep      <- saved$keep
@@ -548,6 +598,20 @@ server <- shinyServer(function(input, output, session) {
     if(!is.null(saved$repeatfoot))conf$repeatfoot <- saved$repeatfoot
     if(!is.null(saved$labelhtml))conf$labelhtml <- saved$labelhtml
     if(!is.null(saved$labeltex))conf$labeltex <- saved$labeltex
+
+    # version control
+    if(!is.null(saved$tablet)){
+      if(!identical(saved$tablet, conf$tablet)){
+        showNotification(
+          duration = NULL,
+          type = 'warning',
+          paste(
+            'configuration was last saved by tablet version', saved$tablet,
+            'but currently using', conf$tablet
+          )
+        )
+      }
+    }
 
     #conf$x          = data.frame()
     # if filepath has changed, data will be re-read: see observeEvent(conf$filepath)
@@ -568,6 +632,7 @@ server <- shinyServer(function(input, output, session) {
     },
     {
     printer('observeEvent:conf$filepath')
+
     # invalidate the keep/filter observers if data changes
     observers <<- list()
 
@@ -592,7 +657,8 @@ server <- shinyServer(function(input, output, session) {
     has_data <- file.exists(datafile)
     has_meta <- file.exists(metafile)
 
-    d <- data.frame()
+   # d <- data.frame() # 2022/04/13 make html() responsive to coerced columns
+    d <- conf$x
 
     if(has_data){
       if(grepl('sas7bdat$', datafile)) d <- data.frame(read_sas(datafile))
@@ -624,10 +690,12 @@ server <- shinyServer(function(input, output, session) {
     have <- names(d)
     need <- names(m)
     make <- setdiff(need, have)
+    #browser()
     for(col in make) d[[col]] <- rep(NA_real_, nrow(d))
 
-    # ensure positive nrow
-    if(nrow(d) == 0) d <- d['',,drop = FALSE]
+
+    # ensure positive nrow # removed at 0.5.4
+    # if(nrow(d) == 0) d <- d['',,drop = FALSE]
 
     # drop unspecified
     d %<>% select(!!!names(m))
@@ -636,10 +704,12 @@ server <- shinyServer(function(input, output, session) {
     d <- redecorate(d, m)
 
     # # Promote NA to a level of the factor
-    d %<>% resolve(exclude = NULL)
+    # d %<>% resolve(exclude = NULL)
+    d %<>% resolve()
 
     # store on the session
     conf$x <- d
+    conf$imputed <- sapply(select(d, !!!make), attr, 'label')
 
   })
 
@@ -685,27 +755,29 @@ server <- shinyServer(function(input, output, session) {
 
     # if(length(input$labelhtml) == 1){
     #   printer('factorized - labelhtml')
-    #   if(input$labelhtml == 'yes'){
-        suppressWarnings(x %<>% modify(html = as_html(as_spork(.data$name)))) # default
-        suppressWarnings(x %<>% modify(html = as_html(as_spork(.data$label))))
-        suppressWarnings(x %<>% modify(
-          html = concatenate(as_html(as_spork(c(.data$label, ' (', .data$units,')'))))
-        ))
+    #   if(input$labelhtml == TRUE){
+
+    suppressWarnings(x %<>% modify(original = name))
+    suppressWarnings(x %<>% modify(html = as_html(as_spork(.data$name)))) # default
+    suppressWarnings(x %<>% modify(html = as_html(as_spork(.data$label))))
+    suppressWarnings(x %<>% modify(
+      html = concatenate(as_html(as_spork(c(.data$label, ' (', .data$units,')'))))
+    ))
     #   }
     # }else{printer('factorized - no labelhtml')}
     # if(length(input$labeltex) == 1){
     #   printer('factorized - labeltex')
     #
-    #   if(input$labeltex == 'yes'){
+    #   if(input$labeltex == TRUE){
         # browser()
         # we need default 'latex' tex attributes for all columns ...
-        suppressWarnings(x %<>% modify(tex = as_latex(as_spork(.data$name))))
-        suppressWarnings(x %<>% modify(tex = as_latex(as_spork(.data$label))))
-        suppressWarnings(x %<>% modify(
-          # should retain class 'latex'
-          # currently pre-doubled by escape_latex.latex
-          tex = concatenate(as_latex(as_spork(c(.data$label, ' (', .data$units,')'))))
-        ))
+    suppressWarnings(x %<>% modify(tex = as_latex(as_spork(.data$name))))
+    suppressWarnings(x %<>% modify(tex = as_latex(as_spork(.data$label))))
+    suppressWarnings(x %<>% modify(
+      # should retain class 'latex'
+      # currently pre-doubled by escape_latex.latex
+      tex = concatenate(as_latex(as_spork(c(.data$label, ' (', .data$units,')'))))
+    ))
     #   }
     # }else{printer('factorized - no labeltex')}
     x
@@ -723,9 +795,10 @@ server <- shinyServer(function(input, output, session) {
     printer('args')
     x <- list(x = selected())
     extra <- list(
+      all_levels = TRUE,
       # all = 'All',
       fun = list(
-        sum ~ signif(digits = 3,     sum(x,  na.rm = TRUE)),
+        sum ~ sum(x,  na.rm = TRUE),
         pct ~ signif(digits = 3,     sum / n * 100        ),
         ave ~ signif(digits = 3,    mean(x,  na.rm = TRUE)),
         std ~ signif(digits = 3,      sd(x,  na.rm = TRUE)),
@@ -737,8 +810,11 @@ server <- shinyServer(function(input, output, session) {
       num = list(
         n ~ smn,
         `Mean (SD)` ~ ave + ' (' + std + ')',
-        Median ~ med,
+        Median ~ paste(med),
         `Min, Max` ~ min + ', ' + max
+      ),
+      fac = list(
+        ` ` ~ ifelse(sum == 0, '0', sum + ' (' + pct + '%' + ')')
       )
     )
     bundle <- c(x, extra)
@@ -757,7 +833,7 @@ server <- shinyServer(function(input, output, session) {
     printer('html')
    # options(knitr.kable.NA = conf$na_string)
     options(knitr.kable.NA = 0)
-
+    # browser()
     fun <- tablet
     if(conf$sequential) fun <- splice
     args <- args()
@@ -771,6 +847,28 @@ server <- shinyServer(function(input, output, session) {
       return()
     }
     x <- do.call(fun, args)
+    # browser()
+    # remove NA groups
+    na <- which(names(x) == 'NA')
+    for(i in rev(na))x[[na]] <- NULL
+
+    # strikethru imputed columns for visual clarity
+    codelist <- attr(x$`_tablet_name`, 'codelist')
+    x$`_tablet_original` <- unlist(codelist[x$`_tablet_name`])
+    # very elegant, but blows away attributes
+    # x %<>% mutate(
+    #   across(
+    #     .cols = -starts_with('_tablet_'),
+    #     .fns = ~ ifelse(`_tablet_original` %in% names(conf$imputed), '-', .x)
+    #   )
+    # )
+    nms <- names(x)
+    nontargets <- grepl('^_tablet_', nms)
+    targets <- !nontargets
+    #targets <- x %>% select(-starts_with('_tablet_')) %>% names
+    imputed <- x$`_tablet_original` %in% names(conf$imputed)
+    if(length(imputed) & length(targets)) x[imputed, targets] <- '-'
+    x$`_tablet_original` <- NULL
     x %<>% as_kable(caption = conf$title)
     x %<>% kable_classic(full_width = F, html_font = "Cambria")
     x %<>% kable_styling(fixed_thead = T)
@@ -779,7 +877,7 @@ server <- shinyServer(function(input, output, session) {
 
   tex <- reactive({
     printer('tex')
-    # browser()
+    #browser()
     old <- opts_knit$get('out.format')
     opts_knit$set(out.format = 'latex')
     # options(knitr.kable.NA = escape_latex(conf$na_string))
@@ -811,24 +909,43 @@ server <- shinyServer(function(input, output, session) {
 
     # call tablet
     x <- do.call(fun, args)
+    # remove NA groups
+    na <- which(names(x) == 'NA')
+    for(i in rev(na))x[[na]] <- NULL
 
-
+    # strikethru imputed columns for visual clarity
+    codelist <- attr(x$`_tablet_name`, 'codelist')
+    x$`_tablet_original` <- unlist(codelist[x$`_tablet_name`])
+    # very elegant, but blows away attributes
+    # x %<>% mutate(
+    #   across(
+    #     .cols = -starts_with('_tablet_'),
+    #     .fns = ~ ifelse(`_tablet_original` %in% names(conf$imputed), '-', .x)
+    #   )
+    # )
+    nms <- names(x)
+    nontargets <- grepl('^_tablet_', nms)
+    targets <- !nontargets
+    #targets <- x %>% select(-starts_with('_tablet_')) %>% names
+    imputed <- x$`_tablet_original` %in% names(conf$imputed)
+    if(length(imputed) & length(targets)) x[imputed, targets] <- '-'
+    x$`_tablet_original` <- NULL
     if(!nrow(x)){
       showNotification(duration = 5, type = 'error', 'nothing selected')
       return(character(0))
     }
-
+    # browser()
     # _tablet_name has been thoroughly pre-escaped for all cases.
     # however, it is created as factor.
     # we flag it as latex to invoke the right method in as_kable(escape_latex = tablet::escape_latex)
-    x %<>% mutate(`_tablet_name` = as_latex(`_tablet_name`))
+    x$`_tablet_name` %<>% as_latex
     x %<>% as_kable(format = 'latex', caption = escape_latex(conf$title), longtable = TRUE)
     if(length(input$repeatheader) == 1){
       if(input$repeatheader == 'yes'){
-        x %<>% kable_styling(latex_options = 'repeat_header')
+        x %<>% kable_styling(latex_options = 'repeat_header', repeat_header_text = '')
       }
     }
-    x %<>% footnote(general = escape_latex(conf$footnotes),fixed_small_size = TRUE, general_title = " ",threeparttable = TRUE)
+    x %<>% footnote(general = unlist(strsplit(conf$footnotes, '\n')),fixed_small_size = TRUE, general_title = " ",threeparttable = TRUE)
     x %<>% as.character
 
     # insert footnote on every page
@@ -956,7 +1073,7 @@ server <- shinyServer(function(input, output, session) {
       'repeatheader',
       'repeat header on each page',
       inline = TRUE,
-      choices = c('yes','no'),
+      choices = c('no','yes'),
       selected = conf$repeathead
     )
   })
@@ -967,7 +1084,7 @@ server <- shinyServer(function(input, output, session) {
       'repeatfootnote',
       'repeat footnote on each page',
       inline = TRUE,
-      choices = c('yes','no'),
+      choices = c('no','yes'),
       selected = conf$repeatfoot
     )
   })
@@ -978,7 +1095,7 @@ server <- shinyServer(function(input, output, session) {
       'labelhtml',
       'scripted labels',
       inline = TRUE,
-      choices = c('yes','no'),
+      choices = c('no','yes'),
       selected = conf$labelhtml
     )
   })
@@ -989,7 +1106,7 @@ server <- shinyServer(function(input, output, session) {
       'labeltex',
       'scripted labels',
       inline = TRUE,
-      choices = c('yes','no'),
+      choices = c('no','yes'),
       selected = conf$labeltex
     )
   })
@@ -1069,7 +1186,7 @@ server <- shinyServer(function(input, output, session) {
 
   output$data <- DT::renderDataTable({
     printer('output$data')
-    if(!nrow(conf$x))return(structure(data.frame(` `='data goes here.', check.names = F), row.names = ' '))
+    if(!ncol(conf$x))return(structure(data.frame(` `='data goes here.', check.names = F), row.names = ' '))
     out <- conf$x
     #out %<>% resolve # already done
     out %<>% modify(name = paste(name, label, sep = ': '))
@@ -1139,7 +1256,7 @@ server <- shinyServer(function(input, output, session) {
 
   output$pdfview <- renderUI({
     printer('output$pdfview')
-    if(!nrow(conf$x))return('PDF displays here.')
+    if(!ncol(conf$x))return('PDF displays here.')
     loc <- pdf_location()
     printer('directory')
     printer(getwd())
@@ -1211,6 +1328,7 @@ server <- shinyServer(function(input, output, session) {
   })
 
   observeEvent(input$saveMeta, {
+
     printer('observeEvent: input$saveMeta')
     path <- isolate(conf$metapath)
     res <- try(yaml.load(input$meta))

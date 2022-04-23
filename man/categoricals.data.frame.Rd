@@ -4,16 +4,18 @@
 \alias{categoricals.data.frame}
 \title{Identify Categoricals for Data Frame}
 \usage{
-\method{categoricals}{data.frame}(x, ..., na.rm_fac = FALSE, exclude_fac = NULL)
+\method{categoricals}{data.frame}(x, ..., na.rm_fac = FALSE, exclude_fac = NULL, all_levels = FALSE)
 }
 \arguments{
-\item{x}{data.frame; names must not include 'name' or 'level'}
+\item{x}{data.frame; names must not start with '_tablet_'}
 
 \item{...}{passed to \code{\link{classifiers}}}
 
 \item{na.rm_fac}{whether to drop NA observations; passed to \code{\link[tidyr]{gather}} as na.rm}
 
 \item{exclude_fac}{which factor levels to exclude; see \code{\link{factor}} (exclude)}
+
+\item{all_levels}{whether to supply records for unobserved levels}
 }
 \value{
 same class as x
@@ -24,6 +26,6 @@ Identifies categorical columns: literally, factors. Stacks factor levels and sup
 \examples{
 example(classifiers)
 categoricals(x)
-levels(categoricals(x)$level)
+levels(categoricals(x)$`_tablet_level`)
 }
 \keyword{internal}
