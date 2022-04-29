@@ -1,4 +1,4 @@
-c519412e97385e7337652477a16e7d34 *DESCRIPTION
+ab4aaaa2b37a0051f47920016acddb61 *DESCRIPTION
 9099b1e8a001a523fec8c6ba7daee466 *NAMESPACE
 70c00d6170ca4d572248fdfca6ba9be6 *R/mesa.R
 77c11de71ce495f94cbab7b93e735256 *R/tablet.R
@@ -6,11 +6,11 @@ c519412e97385e7337652477a16e7d34 *DESCRIPTION
 4ad0e4e731de7dc5e6513df6ffb49192 *build/vignette.rds
 a25d5ec256ebf1c3b228436643141daa *inst/doc/tablet-introduction-html.R
 6ec91d54635530c7a807943ba63c66a2 *inst/doc/tablet-introduction-html.Rmd
-294adb85df41ced2d20dcdb8884f5d05 *inst/doc/tablet-introduction-html.html
+d86c6728c151c3c965e2f18e4bb650a8 *inst/doc/tablet-introduction-html.html
 661adb540ba54c045417dfa57600562c *inst/doc/tablet-introduction-pdf.R
 2df81277a32f5f94b25e776b4126d941 *inst/doc/tablet-introduction-pdf.Rmd
-38657d7f1e39d2c19b8809dd25e9bbaf *inst/doc/tablet-introduction-pdf.pdf
-50558862e7be7390b13fde9ad1bbe758 *inst/shiny-examples/mesa/app.R
+8f5aac435c87996b461882f14d993bf6 *inst/doc/tablet-introduction-pdf.pdf
+37bed0d0db01e178c6edbc3c35cf8a96 *inst/shiny-examples/mesa/app.R
 8807f4c13d15db0a406c51c55f2b7dd7 *inst/shiny-examples/mesa/data/adsl.R
 411e47be8cf60f02ffcd24f3e0c3a05c *inst/shiny-examples/mesa/data/adsl.conf
 92f6845efc1344b6def67eb004913d8d *inst/shiny-examples/mesa/data/adsl.pdf
