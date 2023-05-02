@@ -11,8 +11,8 @@
     TRUE)), med ~ signif(digits = 3, median(x, na.rm = TRUE)), min ~ signif(digits = 3,
     min(x, na.rm = TRUE)), max ~ signif(digits = 3, max(x, na.rm = TRUE))),
   fac = list(` ` ~ sum + " (" + pct + "\%" + ")"),
-  num = list(`Mean (SD)` ~ ave + " (" + std + ")", `Median (range)` ~ med + " (" + min
-    + ", " + max + ")"),
+  num = list(`Mean (SD)` ~ ave + " (" + std + ")", `Median (range)` ~ med + " (" + min +
+    ", " + max + ")"),
   ...
 )
 }
@@ -30,10 +30,9 @@
 \value{
 class 'groupwise', arranged by groups:
 \item{_tablet_name}{observation identifier}
-\item{_tablet_level}{factor level (or special value 'numeric' for numerics)}
+\item{_tablet_level}{factor level or LHS of formulas in 'num'}
 \item{_tablet_N}{number of records}
 \item{_tablet_n}{number of records in group}
-\item{_tablet_stat}{the LHS of formulas in 'fac' and 'num'}
 \item{_tablet_groupfull}{the LHS of formulas in 'fac' and 'num'}
 \item{_tablet_groupless}{the LHS of formulas in 'fac' and 'num'}
 }

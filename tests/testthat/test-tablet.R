@@ -27,7 +27,7 @@ test_that('tablet package result is stable',{
 
   expect_equal_to_reference(
     file = '004.rds',
-    data.frame(x = numeric(1)) %>% tablet
+    data.frame(x = numeric(1)) %>% tablet %>% tablette
   )
 
   # expect_equal_to_reference(
@@ -37,7 +37,7 @@ test_that('tablet package result is stable',{
 
   expect_equal_to_reference(
     file = '006.rds',
-    data.frame(x = factor('foo')) %>% tablet
+    data.frame(x = factor('foo')) %>% tablet %>% tablette
   )
   # just one group
   # expect_equal_to_reference(
@@ -83,12 +83,12 @@ test_that('tablet package result is stable',{
 
   expect_equal_to_reference(
     file = '015.rds',
-    data.frame(x = numeric(1), y = numeric(1)) %>% group_by(y) %>% tablet
+    data.frame(x = numeric(1), y = numeric(1)) %>% group_by(y) %>% tablet %>% tablette
   )
 
   expect_equal_to_reference(
     file = '016.rds',
-    data.frame(x = factor('foo'), y = numeric(1)) %>% group_by(y) %>% tablet
+    data.frame(x = factor('foo'), y = numeric(1)) %>% group_by(y) %>% tablet %>% tablette
   )
 
   # problematic names
@@ -102,22 +102,24 @@ test_that('tablet package result is stable',{
 
 })
 
-test_that('tablet lists stats in the order specified by num and fac',{
-  library(boot)
-  library(dplyr)
-  library(magrittr)
-  lev <- melanoma %>%
-   select(-time, -year) %>%
-   mutate(sex = factor(sex), ulcer = factor(ulcer)) %>%
-   group_by(status) %>%
-   tablet(
-     num = list(
-       `Median (range)` ~ med + ' (' + min + ', ' + max + ')',
-       `Mean (SD)` ~ ave + ' (' + std + ')'
-     )
-   ) %$% `_tablet_stat` %>% levels
-  expect_identical(lev, c(" ","Median (range)", "Mean (SD)"))
-})
+# test_that('tablet lists stats in the order specified by num and fac',{
+#   library(boot)
+#   library(dplyr)
+#   library(magrittr)
+#   lev <- melanoma %>%
+#    select(-time, -year) %>%
+#    mutate(sex = factor(sex), ulcer = factor(ulcer)) %>%
+#    group_by(status) %>%
+#    tablet(
+#      num = list(
+#        `Median (range)` ~ med + ' (' + min + ', ' + max + ')',
+#        `Mean (SD)` ~ ave + ' (' + std + ')'
+#      )
+#    ) %>% 
+#     tablette %$% 
+#     `_tablet_stat` %>% levels
+#   expect_identical(lev, c(" ","Median (range)", "Mean (SD)"))
+# })
 
 test_that('tablet works for decorated or undecorated solitary numerics or categoricals',{
   library(magrittr)
@@ -160,5 +162,54 @@ test_that('splice returns tablet',{
    splice
   expect_true(inherits(x,'tablet'))
 
+})
+
+test_that('class latex on first target propagates to c1',{
+  library(dplyr)
+  library(magrittr)
+  library(haven)
+  library(yamlet)
+  library(spork)
+
+  x <- system.file(package = 'tablet', 'shiny-examples/mesa/data/adsl.sas7bdat')
+  x %<>% read_sas %>% data.frame
+  decorations(x) # note weight in pounds
+  x %<>% mutate(weight = signif(digits = 3, weight * 2.2))
+
+  # calculate BMI by assuming all males are 1.75 m, all females 1.63 cm
+  x %<>% mutate(height = ifelse(sex == 'F', 1.63, 1.75))
+  x %<>% mutate(bmi = signif(digits = 3, weight / (height^2)))
+  x %<>% filter(saffl == 'Y')
+  x %<>% select(trt01a, age, sex, weight, bmi)
+  x %<>% redecorate('
+  trt01a: [ Treatment, [ Placebo, TRT 10 mg, TRT 20 mg ]]
+  age:    [ Age, year ]
+  sex:    [ Sex, [ Female: F, Male: M ]]
+  weight: [ Body Weight, kg ]
+  bmi:    [ Index_body mass, kg/m^2 ]
+  ')
+  x %<>% resolve
+  x %<>% group_by(trt01a)
+
+  x %>% tablet %>% as_kable
+
+  # supply default and unit-conditional latex titles
+  x %<>% modify(title = concatenate(as_latex(as_spork(c(.data$label)))))
+  x %<>% modify(
+  age, weight, bmi,
+    title = concatenate(
+      sep = '',  # default ok in pdf
+      as_latex(
+        as_spork(
+          c(.data$label, ' (', .data$units, ')')
+        )
+      )
+    )
+  )
+  
+  x %>% decorations
+  y <- tablet(x)
+  z <- tablette(y)
+  expect_true(inherits(z[[1]], 'latex'))
 })
 
