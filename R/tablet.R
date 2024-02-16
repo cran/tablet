@@ -681,7 +681,7 @@ groupwise <- function(x, ...)UseMethod('groupwise')
 #'
 #' Calculates widgets with and without groups.
 #' Supplies 'groupfull' and 'groupless' (prefixed) columns instead of 'widgets'.
-#' Column attributes 'label' and 'title' (highest priority) are substituted for column name, if present.
+# Column attributes 'label' and 'title' (highest priority) are substituted for column name, if present.
 #' @param x data.frame
 #' @param fun passed to groupfull() and groupless()
 #' @param fac passed to groupfull() and groupless()
@@ -763,7 +763,7 @@ tablet <- function(x, ...)UseMethod('tablet')
 #' for same statistics without groups. Result columns
 #' have corresponding attribute 'n'. 'lab' supplies a label attribute
 #' for each column where the RHS succeeds: by default appending 'n' to result column names.
-#' Column attributes 'label' and 'title' (highest priority) are substituted for column name, if present.
+# Column attributes 'label' and 'title' (highest priority) are substituted for column name, if present.
 #' @param x groupwise
 #' @param ... ignored
 #' @param all a column name for ungrouped statistics; can have length zero to suppress ungrouped column
@@ -1116,8 +1116,9 @@ as_kable <- function(x, ...)UseMethod('as_kable')
 #'
 #' x <- system.file(package = 'tablet', 'shiny-examples/mesa/data/adsl.sas7bdat')
 #' x %<>% read_sas %>% data.frame
-#' decorations(x) # note weight in pounds
-#' x %<>% mutate(weight = signif(digits = 3, weight * 2.2))
+#' decorations(x) 
+# note weight in pounds
+# x %<>% mutate(weight = signif(digits = 3, weight * 2.2))
 #'
 #' # calculate BMI by assuming all males are 1.75 m, all females 1.63 cm
 #' x %<>% mutate(height = ifelse(sex == 'F', 1.63, 1.75))
@@ -1463,7 +1464,7 @@ tablet.data.frame <- function(
    col <- names(x)[fac | num]
    # don't need to consider grouping vars!
    # they will not contribute to _tablet_name
-   col <- setdiff(col, group_vars(x))
+   col <- setdiff(col, dplyr::group_vars(x))
    if(length(col)){
       prime <- col[[1]]
       targets <- intersect(c('title','label'), names(attributes(x[[prime]])))
@@ -1603,7 +1604,12 @@ escape_latex.default <- function(x, secondary = TRUE, ...){
       x = gsub('\\',  '\\\\', x, fixed = TRUE)
       x = sub( '\\\\','\\',   x, fixed = TRUE) # first will be doubled later by as_kable etc.
    }
-   x <- as_latex(x)
+   #x <- as_latex(x)
+   # @ 0.6.5, apparently this formerly set class to latex.
+   # as_latex is defined by spork.
+   # @ spork 0.2.7, there is no default method.
+   # experimentally, we hard code the class 'latex'
+   class(x) <- union('latex', class(x))
    x
 }
 
@@ -1640,7 +1646,8 @@ escape_latex.latex <- function(x, secondary = TRUE, ...){
       x = gsub('\\',  '\\\\', x, fixed = TRUE)
       x = sub( '\\\\','\\',   x, fixed = TRUE) # first will be doubled later by as_kable etc.
    }
-   x <- as_latex(x)
+   # x <- as_latex(x)
+   class(x) <- union('latex', class(x))
    x
 }
 
