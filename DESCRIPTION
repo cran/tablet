@@ -1,7 +1,7 @@
 Package: tablet
 Type: Package
 Title: Tabulate Descriptive Statistics in Multiple Formats
-Version: 0.6.11
+Version: 0.6.12
 Authors@R: person(given = "Tim",
                   family = "Bergsma",
                   role = c("aut", "cre"),
@@ -25,7 +25,7 @@ Suggests: knitr, rmarkdown, boot, testthat, shiny, shinyFiles, haven,
         yaml, sortable, latexpdf, tinytex, tools, csv, xtable,
         shinyAce, R.utils
 NeedsCompilation: no
-Packaged: 2024-10-25 21:02:37 UTC; tim.bergsma
+Packaged: 2024-11-07 16:56:10 UTC; tim.bergsma
 Author: Tim Bergsma [aut, cre]
 Repository: CRAN
-Date/Publication: 2024-10-25 21:40:02 UTC
+Date/Publication: 2024-11-14 18:20:08 UTC
